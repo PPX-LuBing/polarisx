@@ -4,9 +4,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +58,8 @@ func main() {
 		err = cmdApply(args)
 	case "set":
 		err = cmdSet(args)
+	case "sni":
+		err = cmdSni(args)
 	case "collect":
 		err = cmdCollect(args)
 	case "migrate":
@@ -96,6 +100,9 @@ func usage() {
   user <add|list|set|del|link>  用户与订阅管理
   apply [--no-restart] 生成配置并让运行中的 xray 生效（adu，失败回退重启）
   set k=v [k=v ...]    改设置（键名与 settings.json 一致）
+  sni [--top N] [--apply --node TAG]
+                       在本机实测 SNI 候选（TLS1.3+h2+X25519、排除 Cloudflare 前置），
+                       按延迟排名；--apply 把最佳结果写到节点的 sni/dest
   collect [--no-kick]  采集一次流量并做额度检查（给 systemd 定时器用）
   migrate              检查能否直接接管 Python 版的数据目录（只读）
   doctor               自检（数据库 / 配置 / 节点体检）
@@ -187,7 +194,7 @@ func cmdNode(args []string) error {
 		fs.StringVar(&n.EntryHost, "entry-host", "", "客户端连接地址（逗号分隔多入口）")
 		fs.IntVar(&n.EntryPort, "entry-port", 0, "客户端连接端口，0=同 port")
 		fs.StringVar(&n.EntrySNI, "entry-sni", "", "入口层 SNI")
-		fs.StringVar(&n.SNI, "sni", "", "reality/tls 的 SNI")
+		fs.StringVar(&n.SNI, "sni", "", "reality/tls 的 SNI（填 auto 则本机实测自动挑选）")
 		fs.StringVar(&n.Dest, "dest", "", "reality 伪装目标 host:port")
 		fs.StringVar(&n.PrivKey, "priv-key", "", "reality 私钥")
 		fs.StringVar(&n.PubKey, "pub-key", "", "reality 公钥")
@@ -220,6 +227,25 @@ func cmdNode(args []string) error {
 				return err
 			}
 			n.SSKey = k
+		}
+		// --sni auto：在这台机器上实测候选，自动挑最好的（不用手填、也不硬编码）
+		if strings.EqualFold(n.SNI, "auto") {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			cf := panel.LoadCFRanges(ctx, 20*time.Second)
+			fmt.Printf("--sni auto：实测 %d 个候选（本机视角）…\n", len(panel.SniCandidates))
+			best, _, err := panel.BestSNI(ctx, panel.SniCandidates,
+				func(ctx context.Context, host string) panel.SniResult {
+					return panel.ProbeTLS(ctx, host, 6*time.Second, cf)
+				}, 8)
+			cancel()
+			if err != nil {
+				return err
+			}
+			n.SNI = best.Host
+			if n.Security == "reality" && n.Dest == "" {
+				n.Dest = net.JoinHostPort(best.Host, "443")
+			}
+			fmt.Printf("  选中 %s（%s，合计 %.1fms）\n", best.Host, best.IP, best.Totalms)
 		}
 		if err := store.CreateNode(n); err != nil {
 			return err
@@ -468,6 +494,99 @@ func firstNonZero(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func cmdSni(args []string) error {
+	fs := flag.NewFlagSet("sni", flag.ExitOnError)
+	top := fs.Int("top", 10, "显示前 N 名")
+	timeout := fs.Duration("timeout", 6*time.Second, "单个候选的探测超时")
+	conc := fs.Int("concurrency", 8, "并发数")
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	apply := fs.Bool("apply", false, "把最佳结果写到节点")
+	nodeTag := fs.String("node", "", "--apply 时指定节点 tag")
+	destPort := fs.Int("dest-port", 443, "--apply 时 dest 用的端口")
+	cands := fs.String("candidates", "", "自定义候选（逗号或空格分隔）")
+	_ = fs.Parse(args)
+
+	hosts := panel.SniCandidates
+	if *cands != "" {
+		hosts = panel.CSV(strings.ReplaceAll(*cands, " ", ","))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	fmt.Printf("在本机实测 %d 个 SNI 候选（并发 %d，单个超时 %s）…\n", len(hosts), *conc, *timeout)
+	cf := panel.LoadCFRanges(ctx, 20*time.Second)
+	fmt.Printf("Cloudflare 网段 %d 条（用于排除被 CF 前置的域名）\n\n", cf.Len())
+
+	probe := func(ctx context.Context, host string) panel.SniResult {
+		return panel.ProbeTLS(ctx, host, *timeout, cf)
+	}
+	best, all, err := panel.BestSNI(ctx, hosts, probe, *conc)
+
+	if *asJSON {
+		b, _ := panel.MarshalIndent(map[string]any{"best": best, "all": all})
+		fmt.Print(b)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	good := panel.RankSNI(all)
+	fmt.Printf("可用候选 %d / %d（TLS1.3 + h2 + X25519 全过且未被 CF 前置）\n", len(good), len(all))
+	fmt.Printf("%-4s %-26s %-16s %8s %8s %8s  %s\n", "#", "域名", "IP", "TCP", "TLS", "合计", "密钥交换")
+	for i, r := range good {
+		if i >= *top {
+			break
+		}
+		fmt.Printf("%-4d %-26s %-16s %7.1fms %7.1fms %7.1fms  %s\n",
+			i+1, r.Host, r.IP, r.TCPms, r.TLSms, r.Totalms, r.Group)
+	}
+	if len(good) == 0 {
+		fmt.Println("（没有可用候选；下面列几个落选原因）")
+		for i, r := range all {
+			if i >= 5 {
+				break
+			}
+			fmt.Printf("  %-26s %s\n", r.Host, r.Err)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if !*apply {
+		fmt.Printf("\n最佳: %s（%s，合计 %.1fms）\n", best.Host, best.IP, best.Totalms)
+		fmt.Println("要写入节点：polarisx sni --apply --node <tag>")
+		return nil
+	}
+	if *nodeTag == "" {
+		return fmt.Errorf("--apply 需要 --node <tag>")
+	}
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	n, err := store.NodeByTag(*nodeTag)
+	if err != nil {
+		return fmt.Errorf("节点不存在: %s", *nodeTag)
+	}
+	updates := panel.SniNodeUpdates(n, best, *destPort)
+	if err := store.UpdateNode(*nodeTag, updates); err != nil {
+		return err
+	}
+	fmt.Printf("\n已把节点 %s 的 SNI 设为 %s\n", *nodeTag, best.Host)
+	if n.Security == "reality" {
+		fmt.Printf("  dest = %s:%d\n", best.Host, *destPort)
+	}
+	fmt.Println("  生效：polarisx apply")
+	_ = st
+	return nil
 }
 
 func cmdCollect(args []string) error {

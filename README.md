@@ -38,6 +38,26 @@ POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入�
 
 数据目录用 `POLARISX_HOME`（兼容旧的 `IXPANEL_HOME`），默认 `/usr/local/ixpanel`。
 
+## SNI 自动挑选（REALITY 伪装目标）
+
+不同 VPS 到各站点的 RTT 差别很大，**不该硬编码一个 SNI**。`polarisx sni` 在落地机本机上实测候选：
+
+```bash
+polarisx sni --top 10                      # 排名（TLS1.3 + h2 + X25519、排除 Cloudflare 前置）
+polarisx sni --apply --node ix-reality     # 把最佳结果写到节点（reality 会连 dest 一起换）
+polarisx node add --tag n1 --proto vless --net tcp --security reality \
+    --port 443 --entry-host 1.2.3.4 --sni auto   # 建节点时自动挑
+```
+
+判据（全部用标准库实现，不依赖 openssl）：
+
+1. 解析出 IP，若落在 **Cloudflare 网段**（从官方 API 取，取不到用内置常用段）则跳过 —— REALITY 不适合拿 CDN 前置的域名当伪装目标；
+2. 3 次 TLS 握手取中位数，分别记录 TCP 与 TLS 耗时；
+3. 必须 **TLS1.3 + ALPN h2 + X25519 系密钥交换**。注意现在多数服务器默认协商 `X25519MLKEM768`（后量子混合组），只判 `== X25519` 会把绝大多数合格目标误杀（实测 71 个只剩 1 个）；
+4. 候选池刻意**避开** apple / microsoft / google / amazon / cloudflare 这类被用烂的域名 —— 用烂的 SNI 本身就是特征。
+
+> 换 SNI 会改变客户端订阅里的 `servername`，客户端**重新拉一次订阅**才生效，所以别在用户活跃时随手换。
+
 ## 设计取舍
 
 - 依赖只有一个：`modernc.org/sqlite`（纯 Go、无 cgo，才能编出单静态二进制）。
