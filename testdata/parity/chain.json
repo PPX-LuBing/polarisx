@@ -93,8 +93,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/etc/ssl/fullchain.pem",
-              "keyFile": "/etc/ssl/privkey.pem"
+              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
+              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
             }
           ],
           "minVersion": "1.2",
@@ -145,8 +145,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/etc/ssl/fullchain.pem",
-              "keyFile": "/etc/ssl/privkey.pem"
+              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
+              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
             }
           ],
           "minVersion": "1.2",
@@ -195,8 +195,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/etc/ssl/fullchain.pem",
-              "keyFile": "/etc/ssl/privkey.pem"
+              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
+              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
             }
           ],
           "minVersion": "1.2",
@@ -214,7 +214,7 @@
           {
             "email": "alice",
             "level": 0,
-            "password": "lfFmPs0Ig8JOqdEW29ylyg=="
+            "password": "AjPYLleFCd0DO/NVMpaOVQ=="
           }
         ],
         "method": "2022-blake3-aes-128-gcm",
@@ -239,7 +239,7 @@
       "settings": {
         "clients": [
           {
-            "auth": "wmIbGH0ny80f/2PnZt0DgJzfc3hKy4+ZMYIEBosFTH0=",
+            "auth": "9xgTEJNeMtYsKyVtWZY2W+DvVsAmTALNBJk/kyyJP84=",
             "email": "alice",
             "level": 0
           }
@@ -264,8 +264,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/etc/ssl/fullchain.pem",
-              "keyFile": "/etc/ssl/privkey.pem"
+              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
+              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
             }
           ],
           "serverNames": [

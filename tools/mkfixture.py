@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,31 +35,42 @@ def psk(n):
     return base64.b64encode(bytes(range(n))).decode()  # 固定值，夹具才可复现
 
 
+CERT = os.path.join(TESTDATA, "certs", "test.crt")
+KEY = os.path.join(TESTDATA, "certs", "test.key")
+
 NODES = [
     # tag, proto, net, security, 其它字段
     ("reality-tcp", "vless", "tcp", "reality",
-     {"port": 443, "dest": "www.microsoft.com:443", "sni": "www.microsoft.com",
-      "priv_key": "REALITYPRIV", "pub_key": "REALITYPUB", "short_id": "0123456789abcdef",
-      "flow": "xtls-rprx-vision"}),
+     {"port": 443, "entry_host": "1.2.3.4", "dest": "www.microsoft.com:443",
+      "sni": "www.microsoft.com", "priv_key": "REALITYPRIV", "pub_key": "REALITYPUB",
+      "short_id": "0123456789abcdef", "flow": "xtls-rprx-vision"}),
+    # 多入口节点：订阅里要展开成 -1/-2 两条
     ("tls-vision", "vless", "tcp", "tls",
-     {"port": 8443, "sni": "tls.example.com", "cert_file": "/etc/ssl/fullchain.pem",
-      "key_file": "/etc/ssl/privkey.pem", "flow": "xtls-rprx-vision"}),
+     {"port": 8443, "entry_host": "5.6.7.8, 9.10.11.12", "entry_port": 24443,
+      "sni": "tls.example.com", "cert_file": CERT, "key_file": KEY,
+      "flow": "xtls-rprx-vision"}),
     ("vmess-ws", "vmess", "ws", "tls",
-     {"port": 2053, "path": "/ws", "ws_host": "cdn.example.com", "sni": "cdn.example.com",
-      "cert_file": "/etc/ssl/fullchain.pem", "key_file": "/etc/ssl/privkey.pem"}),
+     {"port": 2053, "entry_host": "cdn.example.com", "path": "/ws",
+      "ws_host": "cdn.example.com", "sni": "cdn.example.com",
+      "cert_file": CERT, "key_file": KEY}),
     ("trojan-grpc", "trojan", "grpc", "tls",
-     {"port": 2087, "grpc_service": "GunService", "sni": "grpc.example.com",
-      "cert_file": "/etc/ssl/fullchain.pem", "key_file": "/etc/ssl/privkey.pem"}),
+     {"port": 2087, "entry_host": "1.2.3.4", "grpc_service": "GunService",
+      "sni": "grpc.example.com", "cert_file": CERT, "key_file": KEY}),
     ("ss2022", "shadowsocks", "tcp", "none",
-     {"port": 8388, "method": "2022-blake3-aes-128-gcm", "ss_key": psk(16)}),
+     {"port": 8388, "entry_host": "1.2.3.4", "method": "2022-blake3-aes-128-gcm",
+      "ss_key": psk(16)}),
     ("hy2", "hysteria", "hysteria", "tls",
-     {"port": 8443, "sni": "hy2.example.com", "cert_file": "/etc/ssl/fullchain.pem",
-      "key_file": "/etc/ssl/privkey.pem", "hy2_up": 60, "hy2_down": 150}),
-    ("vless-xhttp", "vless", "xhttp", "none", {"port": 2096, "path": "/x"}),
+     {"port": 8443, "entry_host": "1.2.3.4", "entry_sni": "front.example.com",
+      "sni": "hy2.example.com", "cert_file": CERT, "key_file": KEY,
+      "hy2_up": 60, "hy2_down": 150}),
+    ("vless-xhttp", "vless", "xhttp", "none",
+     {"port": 2096, "entry_host": "1.2.3.4", "path": "/x"}),
     ("vless-hu", "vless", "httpupgrade", "none",
-     {"port": 2095, "path": "/hu", "ws_host": "hu.example.com"}),
-    ("bad-reality", "vless", "tcp", "reality", {"port": 444, "sni": "x.com"}),  # 缺 priv/dest -> 跳过
-    ("off-node", "vless", "tcp", "none", {"port": 445, "enabled": 0}),          # 禁用 -> 跳过
+     {"port": 2095, "entry_host": "1.2.3.4", "path": "/hu", "ws_host": "hu.example.com"}),
+    ("bad-reality", "vless", "tcp", "reality", {"port": 444, "entry_host": "1.2.3.4",
+                                                "sni": "x.com"}),  # 缺 priv/dest -> 跳过
+    ("off-node", "vless", "tcp", "none", {"port": 445, "entry_host": "1.2.3.4",
+                                          "enabled": 0}),         # 禁用 -> 跳过
 ]
 
 USERS = [("alice", 1, []), ("bob", 1, [1, 3]), ("carol", 0, [])]
@@ -108,8 +120,22 @@ VARIANTS = {
 }
 
 
+def make_cert():
+    """自签证书：证书指纹（整张 DER 的 SHA256）与公钥指纹都要能对上。"""
+    d = os.path.join(TESTDATA, "certs")
+    os.makedirs(d, exist_ok=True)
+    if not os.path.exists(CERT):
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                        "-keyout", KEY, "-out", CERT, "-days", "3650",
+                        "-subj", "/CN=parity.example.com",
+                        "-addext", "subjectAltName=DNS:parity.example.com"],
+                       check=True, capture_output=True)
+        print("  已生成自签证书 testdata/certs/test.crt")
+
+
 def main():
     ix = load_ixpanel(FIXTURE)
+    make_cert()
     build_fixture(ix)
     os.makedirs(PARITY, exist_ok=True)
     conn = ix.db()
@@ -124,6 +150,37 @@ def main():
         print("  %-14s inbound=%d outbound=%d rules=%d"
               % (name, len(cfg["inbounds"]), len(cfg["outbounds"]),
                  len(cfg["routing"]["rules"])))
+    # 订阅侧期望：分享链接 / 三种载荷 / 标题 / 下载头
+    subs = {"links": {}, "payloads": {}, "titles": {}}
+    for u in ix.get_users_all(conn) if hasattr(ix, "get_users_all") else \
+            [ix.row_to_dict(r) for r in conn.execute("SELECT * FROM users ORDER BY id")]:
+        subs["links"][u["name"]] = ix.links_for_user(conn, u, ix.DEFAULT_SETTINGS)
+        for fmt in ("base64", "plain", "json"):
+            body, ctype = ix.sub_payload(conn, u, ix.DEFAULT_SETTINGS, fmt)
+            subs["payloads"]["%s.%s" % (u["name"], fmt)] = {"body": body, "content_type": ctype}
+    for name, over in VARIANTS.items():
+        s2 = dict(ix.DEFAULT_SETTINGS)
+        s2.update(over)
+        subs["titles"][name] = {
+            "title": ix.expand_title(s2),
+            "disposition": ix.content_disposition(ix.expand_title(s2), ".yaml"),
+        }
+    subs["titles"]["with-cc-asn"] = {
+        "title": ix.expand_title(dict(ix.DEFAULT_SETTINGS, server_cc="US",
+                                      server_asn="AS174", server_org="Cogent")),
+        "disposition": ix.content_disposition(
+            ix.expand_title(dict(ix.DEFAULT_SETTINGS, server_cc="US", server_asn="AS174",
+                                 server_org="Cogent")), ".yaml"),
+    }
+    subs["cert_fp"] = {
+        "sha256": ix.cert_sha256(CERT),
+        "pubkey_sha256": ix.cert_pubkey_sha256(CERT),
+    }
+    json.dump(subs, open(os.path.join(PARITY, "subscriptions.json"), "w"),
+              ensure_ascii=False, indent=2, sort_keys=True)
+    print("  订阅期望: links=%d payload=%d titles=%d"
+          % (sum(len(v) for v in subs["links"].values()), len(subs["payloads"]),
+             len(subs["titles"])))
     conn.close()
     print("\n夹具已生成: %s" % FIXTURE)
     print("期望配置:   %s（%d 个变体）" % (PARITY, len(VARIANTS)))

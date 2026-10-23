@@ -32,7 +32,12 @@ func TestParityWithPython(t *testing.T) {
 		if strings.HasSuffix(v, ".settings.json") {
 			continue
 		}
-		names = append(names, strings.TrimSuffix(filepath.Base(v), ".json"))
+		// 只有带同名 .settings.json 的才是配置变体（subscriptions.json 是订阅夹具）
+		name := strings.TrimSuffix(filepath.Base(v), ".json")
+		if _, err := os.Stat(filepath.Join(root, "parity", name+".settings.json")); err != nil {
+			continue
+		}
+		names = append(names, name)
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
