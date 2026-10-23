@@ -133,9 +133,13 @@ def make_cert():
         print("  已生成自签证书 testdata/certs/test.crt")
 
 
+FROZEN_NOW = "2026-01-02 03:04:05"
+
+
 def main():
     ix = load_ixpanel(FIXTURE)
     make_cert()
+    ix.now_str = lambda: FROZEN_NOW   # 冻结时间戳，Clash 期望值才可复现
     build_fixture(ix)
     os.makedirs(PARITY, exist_ok=True)
     conn = ix.db()
@@ -172,6 +176,18 @@ def main():
             ix.expand_title(dict(ix.DEFAULT_SETTINGS, server_cc="US", server_asn="AS174",
                                  server_org="Cogent")), ".yaml"),
     }
+    clash = {}
+    for u in [ix.row_to_dict(r) for r in conn.execute("SELECT * FROM users ORDER BY id")]:
+        for preset in ix.CLASH_RULE_PRESETS:
+            s3 = dict(ix.DEFAULT_SETTINGS, clash_rules=preset)
+            clash["%s.%s" % (u["name"], preset)] = ix.clash_yaml(conn, u, s3)
+        s4 = dict(ix.DEFAULT_SETTINGS, clash_rules="myclash", direct_ports="22, 2222, x")
+        clash["%s.direct-ports" % u["name"]] = ix.clash_yaml(conn, u, s4)
+    subs["clash"] = clash
+    subs["clash_frozen_now"] = FROZEN_NOW
+    print("  Clash 期望: %d 份（%d 预设 × %d 用户 + direct_ports 变体）"
+          % (len(clash), len(ix.CLASH_RULE_PRESETS) + 1,
+             len(subs["links"])))
     subs["cert_fp"] = {
         "sha256": ix.cert_sha256(CERT),
         "pubkey_sha256": ix.cert_pubkey_sha256(CERT),
