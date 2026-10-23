@@ -19,7 +19,8 @@ Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 |---|---|---|
 | ① | 项目骨架 / settings / SQLite 存储 | ✅ |
 | ② | Xray 配置生成（全协议）+ parity | ✅ 6 个变体全过 |
-| ③ | 订阅服务（clash / sing-box / 分享链接） | ⏳ |
+| ③ | 订阅生成：分享链接 / Clash / sing-box | ✅ 链接 22 条 + Clash 18 份 + sing-box 6 份 parity 全过 |
+| ③b | 订阅 HTTP 服务（路径 / header / 停用提示） | ⏳ 依赖 ④ 的额度统计 |
 | ④ | 流量统计 + 额度 + 每月重置 | ⏳ |
 | ⑤ | bubbletea TUI | ⏳ |
 | ⑥ | 内嵌 Web UI + API | ⏳ |

@@ -184,6 +184,13 @@ def main():
         s4 = dict(ix.DEFAULT_SETTINGS, clash_rules="myclash", direct_ports="22, 2222, x")
         clash["%s.direct-ports" % u["name"]] = ix.clash_yaml(conn, u, s4)
     subs["clash"] = clash
+    sb = {}
+    for u in [ix.row_to_dict(r) for r in conn.execute("SELECT * FROM users ORDER BY id")]:
+        for dns in ("doh", "system"):
+            txt, skipped = ix.singbox_config(conn, u, dict(ix.DEFAULT_SETTINGS, singbox_dns=dns))
+            sb["%s.%s" % (u["name"], dns)] = {"json": json.loads(txt), "skipped": skipped}
+    subs["singbox"] = sb
+    print("  sing-box 期望: %d 份" % len(sb))
     subs["clash_frozen_now"] = FROZEN_NOW
     print("  Clash 期望: %d 份（%d 预设 × %d 用户 + direct_ports 变体）"
           % (len(clash), len(ix.CLASH_RULE_PRESETS) + 1,
