@@ -214,7 +214,7 @@
           {
             "email": "alice",
             "level": 0,
-            "password": "pab4izSID1MNCb22tsoXMg=="
+            "password": "3aOrhvoXvpQEc1gT1h+Zbw=="
           }
         ],
         "method": "2022-blake3-aes-128-gcm",
@@ -239,7 +239,7 @@
       "settings": {
         "clients": [
           {
-            "auth": "CtoXQb7hc0MbnfM9Oq4MSfgPI7Yvo3h/bamz791w/uo=",
+            "auth": "BwY4tvvYXCmb9CtmOlP4p2AhXwZcjyuUWdYLVAejcSc=",
             "email": "alice",
             "level": 0
           }

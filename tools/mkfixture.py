@@ -134,6 +134,72 @@ def make_cert():
 
 
 FROZEN_NOW = "2026-01-02 03:04:05"
+FROZEN_TODAY = "2026-03-10"          # 额度/重置相关用这个"今天"
+QUOTA_DIR = os.path.join(TESTDATA, "fixture-quota")
+
+
+def frozen_dt(today_iso):
+    """把模块里的 dt 换掉，让 dt.date.today() 固定 —— 否则期望值不可复现。"""
+    import datetime as _dt
+    y, m, d = (int(x) for x in today_iso.split("-"))
+
+    class FrozenDate(_dt.date):
+        @classmethod
+        def today(cls):
+            return _dt.date(y, m, d)
+
+    class Shim:
+        date, datetime, time, timedelta = FrozenDate, _dt.datetime, _dt.time, _dt.timedelta
+    return Shim
+
+
+_MB = 1024 ** 2
+QUOTA_USERS = [
+    # name, used_up, used_down, quota_gb, expire_at, enable, last_reset, disabled_reason
+    ("over-reset", 600 * _MB, 600 * _MB, 1, "", 1, "", ""),      # 跨重置日：先清零，不该再被停用
+    ("over-now", 1100 * _MB, 0, 1, "", 1, FROZEN_TODAY, ""),     # 本周期超额 -> 停用
+    ("warn", 850 * _MB, 0, 1, "", 1, FROZEN_TODAY, ""),          # 83% -> 预警
+    ("reset-old", 100 * _MB, 100 * _MB, 2, "", 0, "2026-01-01", "流量超额"),  # 停用 + 跨周期 -> 恢复
+    ("reset-current", 100 * _MB, 100 * _MB, 2, "", 1, FROZEN_TODAY, ""),      # 本周期已重置 -> 不动
+    ("expired", 0, 0, 0, "2026-01-01", 1, "", ""),               # 已过期 -> 停用
+    ("fresh", 0, 0, 5, "2027-01-01", 1, "", ""),                 # 正常
+]
+
+STATS_SAMPLES = {
+    "json-zero": '{"stat":[{"name":"user>>>alice>>>traffic>>>uplink","value":1234},'
+                 '{"name":"user>>>bob>>>traffic>>>downlink"}]}',
+    "json-array": '[{"name":"user>>>alice>>>traffic>>>downlink","value":7}]',
+    "proto-text": 'stat: <\n  name: "user>>>alice>>>traffic>>>uplink"\n  value: 999\n>\n'
+                  'stat: <\n  name: "user>>>bob>>>traffic>>>downlink"\n  value: 5\n>\n',
+    "value-first": 'stat: < value: 42 name: "user>>>x>>>traffic>>>uplink" >',
+    "empty": "",
+    "garbage": "not a stats output at all",
+}
+
+
+def build_quota_fixture(qx):
+    """额度/重置/采集的状态型夹具（独立 HOME，独立 panel.db）"""
+    if os.path.exists(QUOTA_DIR):
+        shutil.rmtree(QUOTA_DIR)
+    os.makedirs(QUOTA_DIR)
+    qx.db_init()
+    conn = qx.db()
+    for name, up, down, quota, expire, enable, last, reason in QUOTA_USERS:
+        conn.execute("INSERT INTO users(name, uuid, password, token, quota_gb, used_up,"
+                     " used_down, expire_at, enable, last_reset, disabled_reason, created)"
+                     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (name, "uuid-" + name, "pw-" + name, "tok-" + name, quota, up, down,
+                      expire, enable, last, reason, "2026-01-01T00:00:00"))
+    conn.commit()
+    # 立刻留一份原始副本：后面要跑 auto_reset/collect，跑完得还原
+    conn.close()
+    shutil.copy2(os.path.join(QUOTA_DIR, "panel.db"),
+                 os.path.join(QUOTA_DIR, "panel.db.pristine"))
+    return qx.db()
+
+
+def dump_users(conn):
+    return [dict(r) for r in conn.execute("SELECT * FROM users ORDER BY id")]
 
 
 def main():
@@ -195,6 +261,77 @@ def main():
     print("  Clash 期望: %d 份（%d 预设 × %d 用户 + direct_ports 变体）"
           % (len(clash), len(ix.CLASH_RULE_PRESETS) + 1,
              len(subs["links"])))
+    # ---- 阶段④：额度 / 重置 / 采集 ----
+    qx = load_ixpanel(QUOTA_DIR)
+    qx.dt = frozen_dt(FROZEN_TODAY)
+    qconn = build_quota_fixture(qx)
+    pristine = os.path.join(QUOTA_DIR, "panel.db.pristine")
+    qset = dict(qx.DEFAULT_SETTINGS)
+    qset.update({"quota_reset_day": 5, "traffic_unit_gib": True,
+                 "xray_config": os.path.join(QUOTA_DIR, "xray-config.json"),
+                 "verify_config": False, "restart_cmd": "true"})
+    quota = {
+        "today": FROZEN_TODAY,
+        "settings": {k: qset[k] for k in ("quota_reset_day", "traffic_unit_gib")},
+        "human_bytes": {str(n): qx.human_bytes(n)
+                        for n in (0, 1, 999, 1024, 1536, 1048576, 3 * 1024 ** 3,
+                                  1024 ** 4, 1234567890123)},
+        "quota_bytes": {str(g): qx.quota_bytes({"quota_gb": g}, qset)
+                        for g in (0, 0.5, 1, 100)},
+        "quota_bytes_si": {str(g): qx.quota_bytes({"quota_gb": g}, dict(qset, traffic_unit_gib=False))
+                           for g in (1, 100)},
+        "reset_day": {str(v): qx.reset_day_of_month(dict(qset, quota_reset_day=v))
+                      for v in (0, 1, 5, 28, 29, 31)},
+        "last_reset_due": {d: (qx.last_reset_due(qx.dt.date.fromisoformat(d), 5).isoformat()
+                               if qx.last_reset_due(qx.dt.date.fromisoformat(d), 5) else None)
+                           for d in ("2026-03-04", "2026-03-05", "2026-03-10",
+                                     "2026-01-03", "2026-01-05")},
+        "parse_stats": {k: qx.parse_stats(v) for k, v in STATS_SAMPLES.items()},
+        "userinfo": {u[0]: qx.userinfo_header(qconn, qx.get_user(qconn, u[0]), qset)
+                     for u in QUOTA_USERS},
+    }
+    def restore_pristine():
+        """把 DB 还原成原始状态（两条路径都从同一个起点跑，期望值才可比）"""
+        nonlocal qconn
+        qconn.close()
+        shutil.copy2(pristine, os.path.join(QUOTA_DIR, "panel.db"))
+        for sfx in ("-wal", "-shm"):
+            f = os.path.join(QUOTA_DIR, "panel.db" + sfx)
+            if os.path.exists(f):
+                os.unlink(f)
+        qconn = qx.db()
+
+    # 路径一：每月重置（从原始状态跑两次，验幂等）
+    quota["auto_reset_count"] = qx.auto_reset_monthly(qconn, qset)
+    quota["after_reset"] = dump_users(qconn)
+    quota["auto_reset_again"] = qx.auto_reset_monthly(qconn, qset)
+    quota["after_reset_again"] = dump_users(qconn)
+    restore_pristine()
+    # 采集：注入一份统计，跑 collect（不踢连接、不重启）
+    stats_json = json.dumps({"stat": [
+        {"name": "user>>>fresh>>>traffic>>>uplink", "value": 500},
+        {"name": "user>>>fresh>>>traffic>>>downlink", "value": 700},
+        {"name": "user>>>warn>>>traffic>>>uplink", "value": 100},
+        {"name": "user>>>ghost>>>traffic>>>uplink", "value": 1},   # 已删除用户，应忽略
+    ]})
+    quota["collect_stats_json"] = stats_json
+    qx.fetch_stats = lambda settings, reset=True: qx.parse_stats(stats_json)
+    qx.restart_xray = lambda settings, quiet=True, flush=True: True
+    # 路径二：采集（也从原始状态跑：collect 内部会先做每月重置，这是真实的月初场景）
+    rep = qx.collect(qset, conn=qconn, kick=False, verbose=False)
+    quota["collect_report"] = rep
+    quota["after_collect"] = dump_users(qconn)
+    quota["raw_stats"] = [dict(r) for r in qconn.execute("SELECT * FROM raw_stats ORDER BY email")]
+    # 跑过 auto_reset 与 collect，DB 已被改脏；提交给 Go 测试的必须是**原始**状态
+    restore_pristine()
+    qconn.close()
+    os.unlink(pristine)
+    json.dump(quota, open(os.path.join(PARITY, "quota.json"), "w"),
+              ensure_ascii=False, indent=2, sort_keys=True)
+    print("  额度期望: 重置 %d 人 / 再次重置 %d 人 / 采集 +%d↑+%d↓ 停用 %d 预警 %d"
+          % (quota["auto_reset_count"], quota["auto_reset_again"],
+             rep["added_up"], rep["added_down"], len(rep["disabled"]), len(rep["warned"])))
+
     subs["cert_fp"] = {
         "sha256": ix.cert_sha256(CERT),
         "pubkey_sha256": ix.cert_pubkey_sha256(CERT),

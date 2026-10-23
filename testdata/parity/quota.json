@@ -1,0 +1,452 @@
+{
+  "after_collect": [
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 1,
+      "last_reset": "2026-03-05",
+      "name": "over-reset",
+      "note": "",
+      "password": "pw-over-reset",
+      "quota_gb": 1.0,
+      "token": "tok-over-reset",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-over-reset"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "流量超额 (1.07 GB / 1.00 GB)",
+      "enable": 0,
+      "expire_at": "",
+      "id": 2,
+      "last_reset": "2026-03-10",
+      "name": "over-now",
+      "note": "",
+      "password": "pw-over-now",
+      "quota_gb": 1.0,
+      "token": "tok-over-now",
+      "used_down": 0,
+      "used_up": 1153433600,
+      "uuid": "uuid-over-now"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 3,
+      "last_reset": "2026-03-10",
+      "name": "warn",
+      "note": "",
+      "password": "pw-warn",
+      "quota_gb": 1.0,
+      "token": "tok-warn",
+      "used_down": 0,
+      "used_up": 891289700,
+      "uuid": "uuid-warn"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 4,
+      "last_reset": "2026-03-05",
+      "name": "reset-old",
+      "note": "",
+      "password": "pw-reset-old",
+      "quota_gb": 2.0,
+      "token": "tok-reset-old",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-reset-old"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 5,
+      "last_reset": "2026-03-10",
+      "name": "reset-current",
+      "note": "",
+      "password": "pw-reset-current",
+      "quota_gb": 2.0,
+      "token": "tok-reset-current",
+      "used_down": 104857600,
+      "used_up": 104857600,
+      "uuid": "uuid-reset-current"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "已过期 (2026-01-01)",
+      "enable": 0,
+      "expire_at": "2026-01-01",
+      "id": 6,
+      "last_reset": "2026-03-05",
+      "name": "expired",
+      "note": "",
+      "password": "pw-expired",
+      "quota_gb": 0.0,
+      "token": "tok-expired",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-expired"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "2027-01-01",
+      "id": 7,
+      "last_reset": "2026-03-05",
+      "name": "fresh",
+      "note": "",
+      "password": "pw-fresh",
+      "quota_gb": 5.0,
+      "token": "tok-fresh",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-fresh"
+    }
+  ],
+  "after_reset": [
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 1,
+      "last_reset": "2026-03-05",
+      "name": "over-reset",
+      "note": "",
+      "password": "pw-over-reset",
+      "quota_gb": 1.0,
+      "token": "tok-over-reset",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-over-reset"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 2,
+      "last_reset": "2026-03-10",
+      "name": "over-now",
+      "note": "",
+      "password": "pw-over-now",
+      "quota_gb": 1.0,
+      "token": "tok-over-now",
+      "used_down": 0,
+      "used_up": 1153433600,
+      "uuid": "uuid-over-now"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 3,
+      "last_reset": "2026-03-10",
+      "name": "warn",
+      "note": "",
+      "password": "pw-warn",
+      "quota_gb": 1.0,
+      "token": "tok-warn",
+      "used_down": 0,
+      "used_up": 891289600,
+      "uuid": "uuid-warn"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 4,
+      "last_reset": "2026-03-05",
+      "name": "reset-old",
+      "note": "",
+      "password": "pw-reset-old",
+      "quota_gb": 2.0,
+      "token": "tok-reset-old",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-reset-old"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 5,
+      "last_reset": "2026-03-10",
+      "name": "reset-current",
+      "note": "",
+      "password": "pw-reset-current",
+      "quota_gb": 2.0,
+      "token": "tok-reset-current",
+      "used_down": 104857600,
+      "used_up": 104857600,
+      "uuid": "uuid-reset-current"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "2026-01-01",
+      "id": 6,
+      "last_reset": "2026-03-05",
+      "name": "expired",
+      "note": "",
+      "password": "pw-expired",
+      "quota_gb": 0.0,
+      "token": "tok-expired",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-expired"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "2027-01-01",
+      "id": 7,
+      "last_reset": "2026-03-05",
+      "name": "fresh",
+      "note": "",
+      "password": "pw-fresh",
+      "quota_gb": 5.0,
+      "token": "tok-fresh",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-fresh"
+    }
+  ],
+  "after_reset_again": [
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 1,
+      "last_reset": "2026-03-05",
+      "name": "over-reset",
+      "note": "",
+      "password": "pw-over-reset",
+      "quota_gb": 1.0,
+      "token": "tok-over-reset",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-over-reset"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 2,
+      "last_reset": "2026-03-10",
+      "name": "over-now",
+      "note": "",
+      "password": "pw-over-now",
+      "quota_gb": 1.0,
+      "token": "tok-over-now",
+      "used_down": 0,
+      "used_up": 1153433600,
+      "uuid": "uuid-over-now"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 3,
+      "last_reset": "2026-03-10",
+      "name": "warn",
+      "note": "",
+      "password": "pw-warn",
+      "quota_gb": 1.0,
+      "token": "tok-warn",
+      "used_down": 0,
+      "used_up": 891289600,
+      "uuid": "uuid-warn"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 4,
+      "last_reset": "2026-03-05",
+      "name": "reset-old",
+      "note": "",
+      "password": "pw-reset-old",
+      "quota_gb": 2.0,
+      "token": "tok-reset-old",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-reset-old"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "",
+      "id": 5,
+      "last_reset": "2026-03-10",
+      "name": "reset-current",
+      "note": "",
+      "password": "pw-reset-current",
+      "quota_gb": 2.0,
+      "token": "tok-reset-current",
+      "used_down": 104857600,
+      "used_up": 104857600,
+      "uuid": "uuid-reset-current"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "2026-01-01",
+      "id": 6,
+      "last_reset": "2026-03-05",
+      "name": "expired",
+      "note": "",
+      "password": "pw-expired",
+      "quota_gb": 0.0,
+      "token": "tok-expired",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-expired"
+    },
+    {
+      "created": "2026-01-01T00:00:00",
+      "disabled_reason": "",
+      "enable": 1,
+      "expire_at": "2027-01-01",
+      "id": 7,
+      "last_reset": "2026-03-05",
+      "name": "fresh",
+      "note": "",
+      "password": "pw-fresh",
+      "quota_gb": 5.0,
+      "token": "tok-fresh",
+      "used_down": 0,
+      "used_up": 0,
+      "uuid": "uuid-fresh"
+    }
+  ],
+  "auto_reset_again": 0,
+  "auto_reset_count": 4,
+  "collect_report": {
+    "added_down": 700,
+    "added_up": 600,
+    "disabled": [
+      {
+        "name": "over-now",
+        "reason": "流量超额 (1.07 GB / 1.00 GB)"
+      },
+      {
+        "name": "expired",
+        "reason": "已过期 (2026-01-01)"
+      }
+    ],
+    "errors": [],
+    "warned": [
+      {
+        "name": "warn",
+        "pct": 83.00782181322575,
+        "quota": 1073741824,
+        "used": 891289700
+      }
+    ]
+  },
+  "collect_stats_json": "{\"stat\": [{\"name\": \"user>>>fresh>>>traffic>>>uplink\", \"value\": 500}, {\"name\": \"user>>>fresh>>>traffic>>>downlink\", \"value\": 700}, {\"name\": \"user>>>warn>>>traffic>>>uplink\", \"value\": 100}, {\"name\": \"user>>>ghost>>>traffic>>>uplink\", \"value\": 1}]}",
+  "human_bytes": {
+    "0": "0 B",
+    "1": "1 B",
+    "1024": "1.00 KB",
+    "1048576": "1.00 MB",
+    "1099511627776": "1.00 TB",
+    "1234567890123": "1.12 TB",
+    "1536": "1.50 KB",
+    "3221225472": "3.00 GB",
+    "999": "999 B"
+  },
+  "last_reset_due": {
+    "2026-01-03": "2025-12-05",
+    "2026-01-05": "2026-01-05",
+    "2026-03-04": "2026-02-05",
+    "2026-03-05": "2026-03-05",
+    "2026-03-10": "2026-03-05"
+  },
+  "parse_stats": {
+    "empty": {},
+    "garbage": {},
+    "json-array": {
+      "user>>>alice>>>traffic>>>downlink": 7
+    },
+    "json-zero": {
+      "user>>>alice>>>traffic>>>uplink": 1234,
+      "user>>>bob>>>traffic>>>downlink": 0
+    },
+    "proto-text": {
+      "user>>>alice>>>traffic>>>uplink": 999,
+      "user>>>bob>>>traffic>>>downlink": 5
+    },
+    "value-first": {
+      "user>>>x>>>traffic>>>uplink": 42
+    }
+  },
+  "quota_bytes": {
+    "0": 0,
+    "0.5": 536870912,
+    "1": 1073741824,
+    "100": 107374182400
+  },
+  "quota_bytes_si": {
+    "1": 1000000000,
+    "100": 100000000000
+  },
+  "raw_stats": [
+    {
+      "down": 0,
+      "email": "ghost",
+      "up": 1,
+      "updated": "2026-10-23 21:53:38"
+    },
+    {
+      "down": 0,
+      "email": "warn",
+      "up": 100,
+      "updated": "2026-10-23 21:53:38"
+    }
+  ],
+  "reset_day": {
+    "0": 0,
+    "1": 1,
+    "28": 28,
+    "29": 0,
+    "31": 0,
+    "5": 5
+  },
+  "settings": {
+    "quota_reset_day": 5,
+    "traffic_unit_gib": true
+  },
+  "today": "2026-03-10",
+  "userinfo": {
+    "expired": "upload=0; download=0; total=0; expire=1767283199",
+    "fresh": "upload=0; download=0; total=5368709120; expire=1798819199",
+    "over-now": "upload=1153433600; download=0; total=1073741824; expire=0",
+    "over-reset": "upload=629145600; download=629145600; total=1073741824; expire=0",
+    "reset-current": "upload=104857600; download=104857600; total=2147483648; expire=0",
+    "reset-old": "upload=104857600; download=104857600; total=2147483648; expire=0",
+    "warn": "upload=891289600; download=0; total=1073741824; expire=0"
+  }
+}
