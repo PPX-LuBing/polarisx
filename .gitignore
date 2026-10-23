@@ -1,2 +1,9 @@
 bin/
 .cache/
+
+# 夹具里生成物（不该进仓库）
+testdata/**/*.log
+testdata/**/*.db-wal
+testdata/**/*.db-shm
+testdata/**/*.json.bak
+testdata/fixture-quota/xray-config.json

@@ -35,6 +35,7 @@ def psk(n):
     return base64.b64encode(bytes(range(n))).decode()  # 固定值，夹具才可复现
 
 
+# 生成期望值时用真实路径（要真读证书算指纹）；落盘前再把 DB 里的路径改写成 {REPO} 占位符
 CERT = os.path.join(TESTDATA, "certs", "test.crt")
 KEY = os.path.join(TESTDATA, "certs", "test.key")
 
@@ -336,6 +337,17 @@ def main():
         "sha256": ix.cert_sha256(CERT),
         "pubkey_sha256": ix.cert_pubkey_sha256(CERT),
     }
+    subs["repo_root"] = ROOT
+    # 夹具不能带生成机器的绝对路径：落盘前统一改写成 {REPO}
+    for dbpath in (os.path.join(FIXTURE, "panel.db"), os.path.join(QUOTA_DIR, "panel.db")):
+        if not os.path.exists(dbpath):
+            continue
+        c2 = sqlite3.connect(dbpath)
+        for col in ("cert_file", "key_file"):
+            c2.execute("UPDATE nodes SET %s=REPLACE(%s, ?, '{REPO}')" % (col, col), (ROOT,))
+        c2.commit()
+        c2.close()
+    print("  夹具路径已占位符化（{REPO}）")
     json.dump(subs, open(os.path.join(PARITY, "subscriptions.json"), "w"),
               ensure_ascii=False, indent=2, sort_keys=True)
     print("  订阅期望: links=%d payload=%d titles=%d"

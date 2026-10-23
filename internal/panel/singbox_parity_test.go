@@ -31,18 +31,7 @@ func TestSingboxParity(t *testing.T) {
 
 	fixtureAbs, _ := filepath.Abs(filepath.Join(root, "fixture"))
 	t.Setenv("POLARISX_HOME", fixtureAbs)
-	dbCopy := filepath.Join(t.TempDir(), "panel.db")
-	src, err := os.ReadFile(filepath.Join(fixtureAbs, "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dbCopy, src, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store, err := Open(dbCopy)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openFixture(t, root)
 	defer store.Close()
 
 	for key, exp := range want.Singbox {

@@ -18,8 +18,9 @@ func TestClashParity(t *testing.T) {
 		t.Skipf("没有订阅夹具（先跑 python3 tools/mkfixture.py）: %v", err)
 	}
 	var want struct {
-		Clash map[string]string `json:"clash"`
-		Now   string            `json:"clash_frozen_now"`
+		Clash    map[string]string `json:"clash"`
+		Now      string            `json:"clash_frozen_now"`
+		RepoRoot string            `json:"repo_root"`
 	}
 	if err := json.Unmarshal(raw, &want); err != nil {
 		t.Fatal(err)
@@ -27,6 +28,7 @@ func TestClashParity(t *testing.T) {
 	if len(want.Clash) == 0 {
 		t.Fatal("夹具里没有 clash 期望值")
 	}
+	genRepo := want.RepoRoot
 	now, err := time.ParseInLocation("2006-01-02 15:04:05", want.Now, time.Local)
 	if err != nil {
 		t.Fatal(err)
@@ -34,18 +36,7 @@ func TestClashParity(t *testing.T) {
 
 	fixtureAbs, _ := filepath.Abs(filepath.Join(root, "fixture"))
 	t.Setenv("POLARISX_HOME", fixtureAbs)
-	dbCopy := filepath.Join(t.TempDir(), "panel.db")
-	src, err := os.ReadFile(filepath.Join(fixtureAbs, "panel.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dbCopy, src, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store, err := Open(dbCopy)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openFixture(t, root)
 	defer store.Close()
 
 	for key, exp := range want.Clash {
@@ -66,6 +57,9 @@ func TestClashParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			repoAbs, _ := filepath.Abs(filepath.Join(root, ".."))
+			got = strings.ReplaceAll(got, repoAbs, "{REPO}")
+			exp = strings.ReplaceAll(exp, genRepo, "{REPO}")
 			if d := clashDiff(got, exp); d != "" {
 				t.Errorf("%s: %s", key, d)
 			}
