@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PolarisX · 北极星</title>
+<style>
+  :root {
+    --base: #101827; --panel: #182236; --rule: #2b3a55;
+    --ink: #e8eefc; --muted: #8fa3c4; --signal: #ffb454;
+    --track: #22304a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --base: #f7f8fb; --panel: #ffffff; --rule: #dde3ee;
+      --ink: #16202e; --muted: #5c6b85; --signal: #b26a00; --track: #e6ebf4;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--base); color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .num, th, .tag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 64px; }
+
+  /* 顶栏：仪表外框，一条发丝线贯穿 */
+  .bezel {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 14px 0; border-bottom: 1px solid var(--rule); margin-bottom: 34px;
+  }
+  .brand { font-weight: 650; letter-spacing: -0.01em; }
+  .brand .ver { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: 13px; }
+  .vrule { width: 1px; height: 16px; background: var(--rule); }
+  .host { color: var(--muted); font-size: 13px; }
+  .live { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--signal); }
+  .dot.off { background: #e5484d; }
+  .spacer { flex: 1; }
+  .stamp { color: var(--muted); font-size: 12px; }
+
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 10px; }
+  h2 { font-size: 20px; font-weight: 620; letter-spacing: -0.015em; margin: 0 0 4px; }
+  .cap { color: var(--muted); font-size: 13px; font-weight: 400; margin-left: 8px; }
+  section { margin-bottom: 44px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .hint b { color: var(--signal); font-weight: 600; }
+  .hint code { color: var(--ink); }
+
+  /* 订阅地址：最常做的动作，给足空间 */
+  .sub-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+  .sub-row code {
+    flex: 1 1 320px; min-width: 0; overflow-x: auto; white-space: nowrap;
+    background: var(--panel); border: 1px solid var(--rule);
+    padding: 11px 13px; font-size: 13.5px;
+  }
+  button {
+    font: inherit; font-size: 13.5px; cursor: pointer;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 11px 18px;
+  }
+  button:hover { border-color: var(--signal); color: var(--signal); }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  button.done { border-color: var(--signal); color: var(--signal); }
+
+  /* 表格：靠网格与发丝线，不用卡片 */
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+  th, td { text-align: left; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+  th + th, td + td { padding-left: 22px; }
+  th { color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0.01em; }
+  td.num, th.num { text-align: right; }
+  tbody tr:last-child td { border-bottom: none; }
+  .tag { font-size: 13px; }
+  .muted { color: var(--muted); }
+  .bad { color: #e5484d; }
+  .ok { color: var(--ink); }
+
+  /* 额度刻度：发丝轨道 + 填充 + 80% 处一根琥珀刻度（编码真实规则） */
+  .scale { position: relative; width: 168px; height: 6px; background: var(--track); }
+  .scale i { position: absolute; inset: 0 auto 0 0; background: var(--muted); display: block; }
+  .scale i.hot { background: var(--signal); }
+  .scale b { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--signal); left: 80%; }
+
+  .empty { color: var(--muted); padding: 18px 0; }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 0 16px 48px; }
+    /* 手机上订阅框竖排：地址全宽、复制按钮全宽（更好点） */
+    .sub-row { flex-direction: column; }
+    .sub-row code, .sub-row button { width: 100%; flex: 1 1 auto; }
+    h2 { font-size: 18px; }
+    /* 表格转成堆叠行：手机上也能读 */
+    table, thead, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tr { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+    td { border: none; padding: 2px 0; }
+    td.num { text-align: left; }
+    td[data-l]::before { content: attr(data-l) " "; color: var(--muted); font-size: 12px; }
+    .scale { width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bezel">
+    <div class="brand">PolarisX<span class="ver" id="ver"></span></div>
+    <div class="vrule"></div>
+    <div class="host" id="host">正在读取</div>
+    <div class="vrule"></div>
+    <div class="live"><i class="dot" id="dot"></i><span id="xray">检测中</span></div>
+    <div class="spacer"></div>
+    <div class="stamp" id="stamp"></div>
+  </header>
+
+  <section>
+    <h1>订阅地址</h1>
+    <div class="sub-row">
+      <code id="suburl">读取中</code>
+      <button id="copy">复制</button>
+    </div>
+    <p class="hint" id="subhint">正在读取</p>
+  </section>
+
+  <section>
+    <h2>流量账本<span class="cap" id="cap"></span></h2>
+    <p class="hint">刻度上的琥珀线是 <b>80%</b> 预警线：过线会在采集时提示，到 100% 自动停用该用户。</p>
+    <table>
+      <thead><tr>
+        <th>用户</th><th>用量</th><th class="num">已用</th><th class="num">额度</th>
+        <th class="num">到期</th><th>状态</th>
+      </tr></thead>
+      <tbody id="users"><tr><td class="empty">读取中</td></tr></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>节点</h2>
+    <table>
+      <thead><tr>
+        <th>tag</th><th>协议</th><th>传输</th><th>安全</th>
+        <th class="num">端口</th><th>入口</th><th>状态</th>
+      </tr></thead>
+      <tbody id="nodes"><tr><td class="empty">读取中</td></tr></tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function human(n) {
+  n = Number(n || 0);
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return i === 0 ? n + " B" : n.toFixed(2) + " " + u[i];
+}
+
+// 额度刻度：填充到实际百分比，80% 处那根琥珀刻度代表「预警线」
+function scale(used, quota) {
+  if (!quota) return '<span class="muted">不限</span>';
+  const pct = Math.min(100, (used / quota) * 100);
+  const hot = pct >= 80 ? " hot" : "";
+  return `<span class="scale"><i class="${hot.trim()}" style="width:${pct.toFixed(1)}%"></i><b></b></span>
+          <span class="muted" style="font-size:12px">${pct.toFixed(0)}%</span>`;
+}
+
+async function load() {
+  const r = await fetch("api/overview");
+  if (!r.ok) { $("#host").textContent = "读取失败 " + r.status; return; }
+  const d = await r.json();
+  const st = d.settings || {};
+  $("#ver").textContent = d.version;
+  $("#host").textContent = (st.server_host || d.local_ip || "未设置入口地址") +
+    (st.server_cc || st.server_asn ? "  " + [st.server_cc, st.server_asn].filter(Boolean).join(" ") : "");
+  $("#dot").className = "dot " + (d.xray_online ? "on" : "off");
+  $("#xray").textContent = d.xray_online ? "xray 在线" : "xray 离线";
+  $("#stamp").textContent = "刷新于 " + new Date().toLocaleTimeString();
+  // 单用户是最常见场景：直接给出可用的完整地址，省得自己拼
+  if (d.subscriptions.length === 1) {
+    $("#suburl").textContent = d.subscriptions[0].clash;
+    $("#subhint").textContent = "这就是唯一那份订阅，直接粘进 Clash/mihomo。";
+  } else {
+    $("#suburl").textContent = d.sub_base || "（未设置订阅地址 sub_base）";
+    $("#subhint").innerHTML = "下面每个用户各有一份。Clash 用 <code>/clash</code>，" +
+      "sing-box 用 <code>/singbox</code>，分享链接加 <code>?plain=1</code>。";
+  }
+  $("#cap").textContent = d.nodes.length + " 个节点，" + d.users.length + " 个用户";
+
+  $("#users").innerHTML = d.users.length ? d.users.map((u) => `
+    <tr>
+      <td class="tag">${esc(u.name)}</td>
+      <td data-l="用量">${scale(u.used_bytes, u.quota_bytes)}</td>
+      <td class="num" data-l="已用">${human(u.used_bytes)}</td>
+      <td class="num" data-l="额度">${u.quota_bytes ? human(u.quota_bytes) : "不限"}</td>
+      <td class="num" data-l="到期">${u.expire_at ? esc(u.expire_at) : "不过期"}</td>
+      <td data-l="状态">${u.enable ? '<span class="ok">启用</span>' : '<span class="bad">' + esc(u.disabled_reason || "已停用") + "</span>"}</td>
+    </tr>`).join("") : '<tr><td class="empty">还没有用户。用 ixpanel user add 或 TUI 建一个。</td></tr>';
+
+  $("#nodes").innerHTML = d.nodes.length ? d.nodes.map((n) => `
+    <tr>
+      <td class="tag">${esc(n.tag)}</td>
+      <td data-l="协议">${esc(n.proto)}</td>
+      <td data-l="传输">${esc(n.net)}</td>
+      <td data-l="安全">${esc(n.security)}</td>
+      <td class="num" data-l="端口">${n.port}</td>
+      <td data-l="入口">${esc(n.entry_host || "—")}${n.entry_port && n.entry_port !== n.port ? ":" + n.entry_port : ""}</td>
+      <td data-l="状态">${n.enabled ? (n.problems.length ? '<span class="bad">' + esc(n.problems[0]) + "</span>" : '<span class="ok">启用</span>') : '<span class="muted">停用</span>'}</td>
+    </tr>`).join("") : '<tr><td class="empty">还没有节点。</td></tr>';
+}
+
+$("#copy").addEventListener("click", async () => {
+  const t = $("#suburl").textContent;
+  try { await navigator.clipboard.writeText(t); } catch (_) {}
+  const b = $("#copy");
+  b.textContent = "已复制"; b.classList.add("done");
+  setTimeout(() => { b.textContent = "复制"; b.classList.remove("done"); }, 1400);
+});
+
+load();
+</script>
+</body>
+</html>

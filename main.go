@@ -14,6 +14,7 @@ import (
 	"github.com/PPX-LuBing/polarisx/internal/panel"
 	"github.com/PPX-LuBing/polarisx/internal/sub"
 	"github.com/PPX-LuBing/polarisx/internal/tui"
+	"github.com/PPX-LuBing/polarisx/internal/web"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -44,6 +45,8 @@ func main() {
 		err = cmdSub(args)
 	case "ui":
 		err = cmdUI(args)
+	case "web":
+		err = cmdWeb(args)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -75,6 +78,7 @@ func usage() {
   show [--write]       生成 xray 配置并打印（--write 写到 settings 里的 xray_config）
   sub [--listen ADDR]  启动订阅 HTTP 服务（默认取 settings.sub_listen）
   ui                   打开终端界面（交互式控制台）
+  web [--listen ADDR]  启动内嵌 Web 面板（默认 127.0.0.1:8090，含 /sub/ 订阅）
   doctor               自检（数据库 / 配置 / 节点体检）
   help                 这份帮助
 `)
@@ -114,6 +118,19 @@ func cmdShow(args []string) error {
 	}
 	fmt.Printf("已生成 %s\n", st.XrayConfig)
 	return nil
+}
+
+func cmdWeb(args []string) error {
+	fs := flag.NewFlagSet("web", flag.ExitOnError)
+	listen := fs.String("listen", "127.0.0.1:8090", "监听地址（默认只绑本机）")
+	_ = fs.Parse(args)
+	srv, err := web.New(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer srv.Close()
+	fmt.Printf("Web 面板: http://%s/\n", *listen)
+	return srv.ListenAndServe(*listen)
 }
 
 func cmdUI(args []string) error {
