@@ -1,0 +1,395 @@
+{
+  "api": {
+    "listen": "127.0.0.1:10085",
+    "services": [
+      "StatsService",
+      "HandlerService",
+      "ReflectionService"
+    ],
+    "tag": "api"
+  },
+  "inbounds": [
+    {
+      "clientStats": true,
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "alice",
+            "flow": "xtls-rprx-vision",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "level": 0
+          },
+          {
+            "email": "bob",
+            "flow": "xtls-rprx-vision",
+            "id": "11111111-2222-3333-4444-555555555553",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "realitySettings": {
+          "dest": "www.microsoft.com:443",
+          "privateKey": "REALITYPRIV",
+          "serverNames": [
+            "www.microsoft.com"
+          ],
+          "shortIds": [
+            "0123456789abcdef"
+          ],
+          "show": false,
+          "xver": 0
+        },
+        "security": "reality"
+      },
+      "tag": "reality-tcp"
+    },
+    {
+      "clientStats": true,
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "alice",
+            "flow": "xtls-rprx-vision",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2",
+            "http/1.1"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/etc/ssl/fullchain.pem",
+              "keyFile": "/etc/ssl/privkey.pem"
+            }
+          ],
+          "minVersion": "1.2",
+          "serverName": "tls.example.com"
+        }
+      },
+      "tag": "tls-vision"
+    },
+    {
+      "clientStats": true,
+      "listen": "0.0.0.0",
+      "port": 2053,
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "alterId": 0,
+            "email": "alice",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "level": 0,
+            "security": "auto"
+          },
+          {
+            "alterId": 0,
+            "email": "bob",
+            "id": "11111111-2222-3333-4444-555555555553",
+            "level": 0,
+            "security": "auto"
+          }
+        ]
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2",
+            "http/1.1"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/etc/ssl/fullchain.pem",
+              "keyFile": "/etc/ssl/privkey.pem"
+            }
+          ],
+          "minVersion": "1.2",
+          "serverName": "cdn.example.com"
+        },
+        "wsSettings": {
+          "host": "cdn.example.com",
+          "path": "/ws"
+        }
+      },
+      "tag": "vmess-ws"
+    },
+    {
+      "clientStats": true,
+      "listen": "0.0.0.0",
+      "port": 2087,
+      "protocol": "trojan",
+      "settings": {
+        "clients": [
+          {
+            "email": "alice",
+            "level": 0,
+            "password": "pw-alice"
+          }
+        ]
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "grpcSettings": {
+          "serviceName": "GunService"
+        },
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2",
+            "http/1.1"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/etc/ssl/fullchain.pem",
+              "keyFile": "/etc/ssl/privkey.pem"
+            }
+          ],
+          "minVersion": "1.2",
+          "serverName": "grpc.example.com"
+        }
+      },
+      "tag": "trojan-grpc"
+    },
+    {
+      "listen": "0.0.0.0",
+      "port": 8388,
+      "protocol": "shadowsocks",
+      "settings": {
+        "clients": [
+          {
+            "email": "alice",
+            "level": 0,
+            "password": "lfFmPs0Ig8JOqdEW29ylyg=="
+          }
+        ],
+        "method": "2022-blake3-aes-128-gcm",
+        "network": "tcp,udp",
+        "password": "AAECAwQFBgcICQoLDA0ODw=="
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "tag": "ss2022"
+    },
+    {
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "protocol": "hysteria",
+      "settings": {
+        "clients": [
+          {
+            "auth": "wmIbGH0ny80f/2PnZt0DgJzfc3hKy4+ZMYIEBosFTH0=",
+            "email": "alice",
+            "level": 0
+          }
+        ],
+        "version": 2
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h3"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/etc/ssl/fullchain.pem",
+              "keyFile": "/etc/ssl/privkey.pem"
+            }
+          ],
+          "serverNames": [
+            "hy2.example.com"
+          ]
+        }
+      },
+      "tag": "hy2"
+    },
+    {
+      "clientStats": true,
+      "listen": "0.0.0.0",
+      "port": 2096,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "alice",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "none",
+        "xhttpSettings": {
+          "mode": "auto",
+          "path": "/x"
+        }
+      },
+      "tag": "vless-xhttp"
+    },
+    {
+      "clientStats": true,
+      "listen": "0.0.0.0",
+      "port": 2095,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "email": "alice",
+            "id": "11111111-2222-3333-4444-555555555555",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ],
+        "enabled": true,
+        "routeOnly": false
+      },
+      "streamSettings": {
+        "httpupgradeSettings": {
+          "host": "hu.example.com",
+          "path": "/hu"
+        },
+        "network": "httpupgrade",
+        "security": "none"
+      },
+      "tag": "vless-hu"
+    }
+  ],
+  "log": {
+    "access": "none",
+    "error": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/xray-error.log",
+    "loglevel": "warning"
+  },
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "UseIPv6"
+        }
+      },
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "block"
+    }
+  ],
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserDownlink": true,
+        "statsUserUplink": true
+      }
+    },
+    "system": {
+      "statsInboundDownlink": true,
+      "statsInboundUplink": true,
+      "statsOutboundDownlink": false,
+      "statsOutboundUplink": false
+    }
+  },
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block",
+        "type": "field"
+      }
+    ]
+  },
+  "stats": {}
+}
