@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/PPX-LuBing/polarisx/internal/panel"
 	"github.com/PPX-LuBing/polarisx/internal/sub"
@@ -47,6 +48,10 @@ func main() {
 		err = cmdUI(args)
 	case "web":
 		err = cmdWeb(args)
+	case "collect":
+		err = cmdCollect(args)
+	case "migrate":
+		err = cmdMigrate(args)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -79,6 +84,8 @@ func usage() {
   sub [--listen ADDR]  启动订阅 HTTP 服务（默认取 settings.sub_listen）
   ui                   打开终端界面（交互式控制台）
   web [--listen ADDR]  启动内嵌 Web 面板（默认 127.0.0.1:8090，含 /sub/ 订阅）
+  collect [--no-kick]  采集一次流量并做额度检查（给 systemd 定时器用）
+  migrate              检查能否直接接管 Python 版的数据目录（只读）
   doctor               自检（数据库 / 配置 / 节点体检）
   help                 这份帮助
 `)
@@ -117,6 +124,66 @@ func cmdShow(args []string) error {
 		return err
 	}
 	fmt.Printf("已生成 %s\n", st.XrayConfig)
+	return nil
+}
+
+func cmdCollect(args []string) error {
+	fs := flag.NewFlagSet("collect", flag.ExitOnError)
+	noKick := fs.Bool("no-kick", false, "不踢掉已超额用户的在线连接")
+	_ = fs.Parse(args)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	rep, err := store.Collect(st, time.Now(), !*noKick)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("采集: +%s ↑ / %s ↓，停用 %d，预警 %d\n",
+		panel.HumanBytes(rep.AddedUp), panel.HumanBytes(rep.AddedDown),
+		len(rep.Disabled), len(rep.Warned))
+	for _, d := range rep.Disabled {
+		fmt.Printf("  停用 %s: %s\n", d.Name, d.Reason)
+	}
+	for _, w := range rep.Warned {
+		fmt.Printf("  预警 %s: %.1f%% (%s / %s)\n", w.Name, w.Pct,
+			panel.HumanBytes(w.Used), panel.HumanBytes(w.Quota))
+	}
+	return nil
+}
+
+func cmdMigrate(args []string) error {
+	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	_ = fs.Parse(args)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("检查 %s 能否被 %s 直接接管（只读，不改任何东西）\n\n", panel.Home(), panel.ProductName)
+	bad := 0
+	for _, it := range panel.CheckCompat(st) {
+		mark := "[ok]  "
+		switch it.Level {
+		case "warn":
+			mark = "[..]  "
+		case "bad":
+			mark = "[!!]  "
+			bad++
+		}
+		fmt.Println(mark + it.Message)
+	}
+	fmt.Println()
+	if bad > 0 {
+		fmt.Println("有阻塞项，先解决再接管。")
+		os.Exit(1)
+	}
+	fmt.Println("可以直接接管：数据库与设置都是同一份，换二进制即可。")
+	fmt.Println("回滚：把 ixpanel 的 systemd 单元起回来（数据没被改过）。")
 	return nil
 }
 

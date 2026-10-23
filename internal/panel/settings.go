@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -124,6 +126,62 @@ func SettingsPath() string { return filepath.Join(Home(), "settings.json") }
 
 // DBPath 返回 panel.db 路径。
 func DBPath() string { return filepath.Join(Home(), "panel.db") }
+
+// settingsKinds 由结构体标签反射出来（key -> 字段类型），用来做类型容错，
+// 新增字段不用改这里，不会漏。
+var settingsKinds = func() map[string]reflect.Kind {
+	m := map[string]reflect.Kind{}
+	t := reflect.TypeOf(Settings{})
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name := strings.Split(f.Tag.Get("json"), ",")[0]
+		if name != "" {
+			m[name] = f.Type.Kind()
+		}
+	}
+	return m
+}()
+
+// UnmarshalJSON 容错解析：Python 版 ixpanel set 会把 int/bool 存成字符串
+// （只有 default_quota_gb 和几个布尔键会转换），所以 "1" 与 1 都要能读。
+// 这是信任边界上的必要兼容，不做的话换二进制就起不来。
+func (s *Settings) UnmarshalJSON(b []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	for k, v := range raw {
+		str, ok := v.(string)
+		if !ok {
+			continue
+		}
+		switch settingsKinds[k] {
+		case reflect.Int:
+			n, err := strconv.Atoi(strings.TrimSpace(str))
+			if err != nil {
+				n = 0
+			}
+			raw[k] = n
+		case reflect.Bool:
+			raw[k] = truthy(str)
+		}
+	}
+	fixed, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	type alias Settings
+	return json.Unmarshal(fixed, (*alias)(s))
+}
+
+// truthy 与 Python 版 cmd_set 的判定保持一致。
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
 
 // LoadSettings 读 settings.json；文件不存在则返回默认值。缺的键保留默认值（与 Python 版一致）。
 func LoadSettings() (Settings, error) {

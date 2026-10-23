@@ -1,0 +1,12 @@
+[Unit]
+Description=PolarisX 流量采集（一次性）
+
+[Service]
+Type=oneshot
+Environment=POLARISX_HOME=/usr/local/ixpanel
+ExecStart=/usr/local/bin/polarisx collect
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/usr/local/ixpanel

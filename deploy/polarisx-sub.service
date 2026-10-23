@@ -1,0 +1,21 @@
+[Unit]
+Description=PolarisX 订阅服务（北极星）
+Documentation=https://github.com/PPX-LuBing/polarisx
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=POLARISX_HOME=/usr/local/ixpanel
+ExecStart=/usr/local/bin/polarisx sub --listen 0.0.0.0:8080
+Restart=always
+RestartSec=2
+# 只读系统目录，只允许写数据目录
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/usr/local/ixpanel
+
+[Install]
+WantedBy=multi-user.target

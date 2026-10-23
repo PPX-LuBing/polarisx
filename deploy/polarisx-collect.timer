@@ -1,0 +1,10 @@
+[Unit]
+Description=每分钟采集一次流量（含每月自动重置）
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

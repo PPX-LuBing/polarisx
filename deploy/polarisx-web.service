@@ -1,0 +1,19 @@
+[Unit]
+Description=PolarisX Web 面板（默认只绑本机）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=POLARISX_HOME=/usr/local/ixpanel
+ExecStart=/usr/local/bin/polarisx web --listen 127.0.0.1:8090
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/usr/local/ixpanel
+
+[Install]
+WantedBy=multi-user.target
