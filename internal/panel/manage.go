@@ -296,6 +296,10 @@ func buildSets(pairs, allowed []string, intFields map[string]bool) ([]string, []
 
 // KickUser 把用户从运行中的 xray 摘掉（在线连接一并断开）。
 func (s *Store) KickUser(st Settings, u User) error {
+	// 老版本 xray 没有 rmu；拿不到 API 就静默跳过（停用状态仍会写进配置，重启后生效）
+	if !APIAvailable(st, 10*timeSecond) {
+		return nil
+	}
 	nodes, err := s.NodesForUser(u, false)
 	if err != nil {
 		return err

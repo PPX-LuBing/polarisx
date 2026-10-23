@@ -328,7 +328,7 @@ func (s *Store) ApplyStats(stats map[string]int64, st Settings, today time.Time,
 			}
 		}
 		if reason != "" {
-			if err := s.DisableUser(u, reason, kick); err != nil {
+			if err := s.DisableUser(st, u, reason, kick); err != nil {
 				return rep, err
 			}
 			rep.Disabled = append(rep.Disabled, DisabledUser{u.Name, reason})
@@ -340,14 +340,23 @@ func (s *Store) ApplyStats(stats map[string]int64, st Settings, today time.Time,
 	return rep, nil
 }
 
-// DisableUser 停用用户并记录原因（kick=true 时同时踢掉在线连接）。
-func (s *Store) DisableUser(u User, reason string, kick bool) error {
+// DisableUser 停用用户并记录原因。
+// kick=true 时用 xray api rmu 把用户从运行中的 xray 摘掉——否则超额用户虽然被停用，
+// 已有连接仍会一直跑到断开为止（要等 xray 重启才真正断）。
+func (s *Store) DisableUser(st Settings, u User, reason string, kick bool) error {
 	if _, err := s.db.Exec("UPDATE users SET enable=0, disabled_reason=? WHERE id=?",
 		reason, u.ID); err != nil {
 		return err
 	}
 	if err := s.Event("停用用户: "+reason, "warn", u.Name); err != nil {
 		return err
+	}
+	if !kick {
+		return nil
+	}
+	if err := s.KickUser(st, u); err != nil {
+		// 踢失败不该让整次采集失败：配置已改，下次重启 xray 也会生效
+		return s.Event("踢掉在线连接失败: "+err.Error(), "warn", u.Name)
 	}
 	return nil
 }

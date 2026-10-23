@@ -356,6 +356,17 @@ func cmdUser(args []string) error {
 		if err := store.UpdateUser(rest[0], rest[1:]); err != nil {
 			return err
 		}
+		// 手动停用同样要摘掉在线连接（Python 版此处 kick=True）
+		for _, p := range rest[1:] {
+			if p == "enable=0" || p == "enable=false" {
+				if u, err := store.UserByName(rest[0]); err == nil {
+					if err := store.DisableUser(st, u, "管理员手动停用", true); err != nil {
+						return err
+					}
+				}
+				break
+			}
+		}
 		fmt.Printf("用户 %s 已更新\n", rest[0])
 		return nil
 	case "del", "delete", "rm":
@@ -602,7 +613,8 @@ func cmdCollect(args []string) error {
 		return err
 	}
 	defer store.Close()
-	rep, err := store.Collect(st, time.Now(), !*noKick)
+	// 默认跟 fail2ban_kick 设置走（Python 版语义），--no-kick 可强制关掉
+	rep, err := store.Collect(st, time.Now(), !*noKick && st.Fail2banKick)
 	if err != nil {
 		return err
 	}

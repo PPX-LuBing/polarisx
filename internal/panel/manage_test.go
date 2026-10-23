@@ -105,7 +105,7 @@ func TestManageRoundTrip(t *testing.T) {
 			t.Errorf("用户没改上: %+v", u)
 		}
 		// 停用后再启用应清掉停用原因
-		if err := store.DisableUser(u, "流量超额 (1 GB / 1 GB)", false); err != nil {
+		if err := store.DisableUser(st, u, "流量超额 (1 GB / 1 GB)", false); err != nil {
 			t.Fatal(err)
 		}
 		u, _ = store.UserByName("alice")
