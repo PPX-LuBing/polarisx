@@ -78,18 +78,9 @@ type overview struct {
 	Subs       []subView    `json:"subscriptions"`
 }
 
-// SubBaseFor 订阅对外地址前缀（没配 sub_base 就回落到监听地址）。
-func SubBaseFor(st panel.Settings) string {
-	base := strings.TrimSpace(st.SubBase)
-	if base == "" {
-		base = "http://" + st.SubListen
-	}
-	return strings.TrimSuffix(base, "/")
-}
-
 // SubURLFor 拼订阅地址（suffix 形如 "" / "/clash" / "/singbox" / "?plain=1"）。
 func SubURLFor(st panel.Settings, token, suffix string) string {
-	return SubBaseFor(st) + "/sub/" + token + suffix
+	return panel.SubBaseFor(st) + "/sub/" + token + suffix
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +129,7 @@ func (s *Server) serveOverview(w http.ResponseWriter) {
 		Version:    panel.Version,
 		Home:       panel.Home(),
 		XrayOnline: probe(st, 1500*time.Millisecond),
-		SubBase:    SubBaseFor(st),
+		SubBase:    panel.SubBaseFor(st),
 		Settings: settingsView{st.ServerHost, st.ServerCC, st.ServerASN, st.ClashRules,
 			st.OutboundDomainStrategy},
 		Nodes: []nodeView{}, Users: []userView{}, Subs: []subView{},

@@ -154,14 +154,14 @@ func TestSubURLHelpers(t *testing.T) {
 	st := panel.Defaults()
 	st.SubBase = "http://example.com:61887/"
 	st.SubListen = "127.0.0.1:8080"
-	if got := SubBaseFor(st); got != "http://example.com:61887" {
+	if got := panel.SubBaseFor(st); got != "http://example.com:61887" {
 		t.Errorf("SubBaseFor = %q", got)
 	}
 	if got := SubURLFor(st, "tok", "/clash"); got != "http://example.com:61887/sub/tok/clash" {
 		t.Errorf("SubURLFor = %q", got)
 	}
 	st.SubBase = ""
-	if got := SubBaseFor(st); got != "http://127.0.0.1:8080" {
+	if got := panel.SubBaseFor(st); got != "http://127.0.0.1:8080" {
 		t.Errorf("没配 sub_base 应回落到监听地址，实际 %q", got)
 	}
 }

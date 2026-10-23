@@ -38,6 +38,27 @@ POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入�
 
 数据目录用 `POLARISX_HOME`（兼容旧的 `IXPANEL_HOME`），默认 `/usr/local/ixpanel`。
 
+## 免域名订阅（cloudflared 临时隧道）
+
+没有域名、也不想给落地机配证书时，用 Cloudflare 的临时隧道把订阅暴露成一个 HTTPS 地址：
+
+```bash
+polarisx tunnel on --download   # 下载 cloudflared、起隧道、把 sub_base 切成隧道域名
+polarisx tunnel status          # 看当前域名 / 服务状态 / 是否对得上
+polarisx tunnel refresh         # 手动把最新域名写回 sub_base（定时器每 2 分钟自动做）
+polarisx tunnel off             # 关隧道，订阅地址还原成开隧道之前的值
+```
+
+行为要点：
+
+1. 域名从 cloudflared 的 metrics 端口 `GET /quicktunnel` 取（**不解析日志**），只接受
+   `*.trycloudflare.com`；metrics 地址是设置项 `sub_tunnel_metrics`（默认 `127.0.0.1:19090`）。
+2. **临时隧道域名每次重启 cloudflared 都会变**，所以 `polarisx-tunnel-refresh.timer` 每 2 分钟
+   跑一次 `polarisx tunnel refresh` 把新域名写回 `sub_base`（域名没变则不写盘）。
+3. `polarisx-tunnel.service` 的 `--metrics` / `--url` 用**当前设置渲染**，不会出现
+   「单元里写死的参数和设置不一致」这种坑。
+4. `tunnel on` 会把开隧道前的 `sub_base` 记在 `sub_tunnel_prev_base`，`off` 时还原。
+
 ## SNI 自动挑选（REALITY 伪装目标）
 
 不同 VPS 到各站点的 RTT 差别很大，**不该硬编码一个 SNI**。`polarisx sni` 在落地机本机上实测候选：

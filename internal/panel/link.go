@@ -269,6 +269,16 @@ func (s *Store) LinksForUser(u User, st Settings, onlyEnabled bool) ([]string, e
 	return out, nil
 }
 
+// SubBaseFor 订阅对外地址前缀（没配 sub_base 就回落到监听地址）。
+// 注意：返回的是不含订阅路径的前缀，路径由调用方按 /sub/<token> 拼。
+func SubBaseFor(st Settings) string {
+	base := strings.TrimSpace(st.SubBase)
+	if base == "" {
+		base = "http://" + st.SubListen
+	}
+	return strings.TrimSuffix(base, "/")
+}
+
 // SubPayload 生成订阅内容与 Content-Type。fmt: base64（默认）/ plain / json。
 func (s *Store) SubPayload(u User, st Settings, format string) (string, string, error) {
 	links, err := s.LinksForUser(u, st, true)
