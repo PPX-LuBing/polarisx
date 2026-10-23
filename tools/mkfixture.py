@@ -203,6 +203,67 @@ def dump_users(conn):
     return [dict(r) for r in conn.execute("SELECT * FROM users ORDER BY id")]
 
 
+# 订阅 HTTP 服务：真的起一个 Python 版服务，把响应矩阵录下来当期望值
+HTTP_KEEP_HEADERS = ("content-type", "content-length", "cache-control", "subscription-userinfo",
+                     "profile-update-interval", "profile-title", "content-disposition",
+                     "x-ixpanel-skipped-nodes")
+HTTP_MATRIX = [
+    # key, method, path
+    ("root", "GET", "/"),
+    ("index", "GET", "/index.html"),
+    ("health", "GET", "/health"),
+    ("notfound", "GET", "/nope"),
+    ("no-token", "GET", "/sub/"),
+    ("bad-token", "GET", "/sub/bad-token"),
+    ("plain-base64", "GET", "/sub/tok-alice"),
+    ("trailing-slash", "GET", "/sub/tok-alice/"),
+    ("clash", "GET", "/sub/tok-alice/clash"),
+    ("clash-named", "GET", "/sub/tok-alice/%E5%AE%9A%E5%88%B6.yaml"),
+    ("singbox", "GET", "/sub/tok-alice/singbox"),
+    ("singbox-json", "GET", "/sub/tok-alice/x.json"),
+    ("txt", "GET", "/sub/tok-alice/x.txt"),
+    ("info", "GET", "/sub/tok-alice/info"),
+    ("fmt-clash", "GET", "/sub/tok-alice?fmt=clash"),
+    ("fmt-json", "GET", "/sub/tok-alice?fmt=json"),
+    ("plain-flag", "GET", "/sub/tok-alice?plain=1"),
+    ("disabled", "GET", "/sub/tok-carol"),
+    ("disabled-clash", "GET", "/sub/tok-carol/clash"),
+    ("head", "HEAD", "/sub/tok-alice"),
+]
+
+
+def capture_http(ix):
+    """起 Python 版订阅服务，按矩阵请求并记录状态码/关键 header/正文。"""
+    import socket
+    import threading
+    import urllib.error
+    import urllib.request
+
+    with socket.socket() as sk:
+        sk.bind(("127.0.0.1", 0))
+        port = sk.getsockname()[1]
+    base = "http://127.0.0.1:%d" % port
+    srv = ix.ThreadingHTTPServer(("127.0.0.1", port), ix.SubHandler)
+    ix.SubHandler.settings = ix.load_settings()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    out = {}
+    try:
+        for key, method, path in HTTP_MATRIX:
+            req = urllib.request.Request(base + path, method=method)
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    status, hdrs, body = resp.status, dict(resp.headers), resp.read()
+            except urllib.error.HTTPError as e:
+                status, hdrs, body = e.code, dict(e.headers), e.read()
+            keep = {k.lower(): v for k, v in hdrs.items() if k.lower() in HTTP_KEEP_HEADERS}
+            out[key] = {"method": method, "path": path, "status": status, "headers": keep,
+                        "body": None if method == "HEAD" else body.decode("utf-8")}
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    return out
+
+
 def main():
     ix = load_ixpanel(FIXTURE)
     make_cert()
@@ -337,6 +398,11 @@ def main():
         "sha256": ix.cert_sha256(CERT),
         "pubkey_sha256": ix.cert_pubkey_sha256(CERT),
     }
+    # HTTP 服务：先写好 settings.json（服务每请求重读它），再录响应矩阵
+    ix.save_settings(dict(ix.DEFAULT_SETTINGS, sub_title="定制·{cc}·{asn}",
+                          server_cc="US", server_asn="AS174"))
+    subs["http"] = capture_http(ix)
+    print("  HTTP 期望: %d 个请求（含 HEAD / 停用用户 / 各种后缀与 fmt）" % len(subs["http"]))
     subs["repo_root"] = ROOT
     # 夹具不能带生成机器的绝对路径：落盘前统一改写成 {REPO}
     for dbpath in (os.path.join(FIXTURE, "panel.db"), os.path.join(QUOTA_DIR, "panel.db")):

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/PPX-LuBing/polarisx/internal/panel"
+	"github.com/PPX-LuBing/polarisx/internal/sub"
 )
 
 func main() {
@@ -28,6 +29,8 @@ func main() {
 		err = cmdShow(args)
 	case "doctor":
 		err = cmdDoctor(args)
+	case "sub":
+		err = cmdSub(args)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -48,6 +51,7 @@ func usage() {
 
   version              显示版本与数据目录
   show [--write]       生成 xray 配置并打印（--write 写到 settings 里的 xray_config）
+  sub [--listen ADDR]  启动订阅 HTTP 服务（默认取 settings.sub_listen）
   doctor               自检（数据库 / 配置 / 节点体检）
   help                 这份帮助
 `)
@@ -87,6 +91,26 @@ func cmdShow(args []string) error {
 	}
 	fmt.Printf("已生成 %s\n", st.XrayConfig)
 	return nil
+}
+
+func cmdSub(args []string) error {
+	fs := flag.NewFlagSet("sub", flag.ExitOnError)
+	listen := fs.String("listen", "", "监听地址，默认取 settings.sub_listen")
+	_ = fs.Parse(args)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	addr := *listen
+	if addr == "" {
+		addr = st.SubListen
+	}
+	srv, err := sub.New(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer srv.Close()
+	return srv.ListenAndServe(addr)
 }
 
 func cmdDoctor(args []string) error {

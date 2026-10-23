@@ -180,6 +180,16 @@ func marshalNoEscape(v any, indent string) ([]byte, error) {
 	return []byte(sb.String()), nil
 }
 
+// MarshalIndent 按 Python 的 json.dumps(indent=2, ensure_ascii=False) 风格序列化
+// （不转义 HTML、保留非 ASCII、末尾带换行）。
+func MarshalIndent(v any) (string, error) {
+	b, err := marshalNoEscape(v, "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // CSV 把逗号分隔的设置项切成列表（空项丢弃，兼容中文逗号）。
 func CSV(s string) []string {
 	var out []string
