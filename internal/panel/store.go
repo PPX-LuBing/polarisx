@@ -309,6 +309,44 @@ func containsID(ids []int64, want int64) bool {
 	return false
 }
 
+// Event 是 events 表里的一行。
+type Event struct {
+	ID       int64  `json:"id"`
+	TS       string `json:"ts"`
+	Level    string `json:"level"`
+	UserName string `json:"user_name"`
+	Message  string `json:"message"`
+}
+
+// Events 取最近 n 条事件（倒序）。n<=0 时给个合理默认。
+func (s *Store) Events(n int) ([]Event, error) {
+	if n <= 0 {
+		n = 30
+	}
+	rows, err := s.db.Query(
+		"SELECT id, ts, level, user_name, message FROM events ORDER BY id DESC LIMIT ?", n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.ID, &e.TS, &e.Level, &e.UserName, &e.Message); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// EventCount 事件总数（status 里显示）。
+func (s *Store) EventCount() int {
+	var n int
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM events").Scan(&n)
+	return n
+}
+
 // UserNodeKey 取（或生成）某用户在某节点上的专属 PSK，SS2022 与 Hysteria2 共用这份存储。
 func (s *Store) UserNodeKey(userID int64, n Node) (string, error) {
 	var key string

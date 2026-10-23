@@ -63,6 +63,14 @@ func main() {
 		err = cmdSni(args)
 	case "tunnel":
 		err = cmdTunnel(args)
+	case "status":
+		err = cmdStatus(args)
+	case "events":
+		err = cmdEvents(args)
+	case "export":
+		err = cmdExport(args)
+	case "uninstall":
+		err = cmdUninstall(args)
 	case "collect":
 		err = cmdCollect(args)
 	case "migrate":
@@ -106,6 +114,12 @@ func usage() {
   sni [--top N] [--apply --node TAG]
                        在本机实测 SNI 候选（TLS1.3+h2+X25519、排除 Cloudflare 前置），
                        按延迟排名；--apply 把最佳结果写到节点的 sni/dest
+  status               一眼看全：xray/节点/用户/订阅/落地机地址
+  events [--limit N]   看事件日志（停用/预警/改配置都记在这里）
+  export [--config PATH]
+                       导出生成的 xray 配置；不带参数则列出用户与用量
+  uninstall [--yes] [--purge]
+                       卸载面板（--purge 连数据一起删；默认保留 panel.db/settings.json）
   tunnel [status|on|off|refresh]
                        免域名订阅隧道（cloudflared 临时隧道，域名每次重启会变，
                        由 refresh 定时器写回 sub_base）
@@ -604,6 +618,181 @@ func cmdSni(args []string) error {
 	fmt.Println("  生效：polarisx apply")
 	_ = st
 	return nil
+}
+
+func cmdStatus(args []string) error {
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	nodes, _ := store.Nodes(false)
+	enabled := 0
+	for _, n := range nodes {
+		if n.Enabled == 1 {
+			enabled++
+		}
+	}
+	users, _ := store.Users()
+	disabled := 0
+	for _, u := range users {
+		if u.Enable != 1 {
+			disabled++
+		}
+	}
+	host := st.ServerHost
+	if host == "" {
+		host = localIP()
+	}
+	fmt.Printf("polarisx     : %s (%s)\n", panel.Version, panel.Home())
+	fmt.Printf("xray 二进制  : %s\n", firstNonEmptyStr(panel.FindXray(st), "未找到"))
+	cfgNote := ""
+	if _, err := os.Stat(st.XrayConfig); err != nil {
+		cfgNote = "（不存在）"
+	}
+	fmt.Printf("xray 配置    : %s %s\n", st.XrayConfig, cfgNote)
+	api := "不通"
+	if panel.APIAvailable(st, 5*time.Second) {
+		api = "在线"
+	}
+	fmt.Printf("xray API     : %s %s\n", st.XrayAPI, api)
+	fmt.Printf("节点         : %d 个启用 / %d 个总计\n", enabled, len(nodes))
+	fmt.Printf("用户         : %d 个 (%d 停用)\n", len(users), disabled)
+	fmt.Printf("订阅服务     : %s (对外: %s)\n", st.SubListen,
+		firstNonEmptyStr(st.SubBase, "未设置 sub_base"))
+	fmt.Printf("落地机地址   : %s\n", firstNonEmptyStr(host, "未设置"))
+	fmt.Printf("事件         : %d 条（polarisx events 看最近几条）\n", store.EventCount())
+	return nil
+}
+
+func cmdEvents(args []string) error {
+	fs := flag.NewFlagSet("events", flag.ExitOnError)
+	limit := fs.Int("limit", 30, "显示最近 N 条")
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	_ = fs.Parse(args)
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	evs, err := store.Events(*limit)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		b, _ := panel.MarshalIndent(evs)
+		fmt.Print(b)
+		return nil
+	}
+	if len(evs) == 0 {
+		fmt.Println("还没有事件")
+		return nil
+	}
+	for _, e := range evs {
+		who := ""
+		if e.UserName != "" {
+			who = " " + e.UserName
+		}
+		fmt.Printf("%s [%-5s]%s %s\n", e.TS, e.Level, who, e.Message)
+	}
+	return nil
+}
+
+func cmdExport(args []string) error {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	cfgPath := fs.String("config", "", "把生成的 xray 配置写到这个路径")
+	_ = fs.Parse(args)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if *cfgPath != "" {
+		cfg, err := store.BuildConfig(st)
+		if err != nil {
+			return err
+		}
+		if err := panel.WriteConfig(st, cfg, *cfgPath, false); err != nil {
+			return err
+		}
+		fmt.Printf("xray 配置已导出: %s\n", *cfgPath)
+	}
+	users, err := store.Users()
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		state := "启用"
+		if u.Enable != 1 {
+			state = "停用"
+		}
+		quota := "不限"
+		if q := panel.QuotaBytes(u, st); q > 0 {
+			quota = panel.HumanBytes(q)
+		}
+		fmt.Printf("[%s] %-12s 已用 %-10s / 额度 %-10s 到期 %-12s token=%s\n",
+			state, u.Name, panel.HumanBytes(panel.UsedBytes(u)), quota,
+			firstNonEmptyStr(u.ExpireAt, "不限"), u.Token)
+	}
+	return nil
+}
+
+// cmdUninstall 委托给 deploy/install.sh 的 uninstall，保证安装/卸载对称。
+func cmdUninstall(args []string) error {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	yes := fs.Bool("yes", false, "不交互确认")
+	purge := fs.Bool("purge", false, "连数据一起删（panel.db/settings.json）")
+	_ = fs.Parse(args)
+	script := ""
+	for _, p := range []string{
+		filepath.Join(panel.Home(), "install.sh"),
+		"/root/polarisx-deploy/install.sh",
+		filepath.Join(panel.Home(), "..", "polarisx-deploy", "install.sh"),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			script = p
+			break
+		}
+	}
+	if script == "" {
+		fmt.Println("找不到 install.sh，无法自动卸载。手动执行：")
+		fmt.Println("  systemctl disable --now polarisx-collect.timer polarisx-sub.service polarisx-web.service")
+		fmt.Println("  rm -f /etc/systemd/system/polarisx-*.service /etc/systemd/system/polarisx-*.timer")
+		fmt.Println("  rm -f /usr/local/bin/polarisx")
+		fmt.Printf("  rm -rf %s   # 只在确定不要数据时\n", panel.Home())
+		return nil
+	}
+	cmdArgs := []string{script, "uninstall"}
+	if *yes {
+		cmdArgs = append(cmdArgs, "--yes")
+	}
+	if *purge {
+		cmdArgs = append(cmdArgs, "--purge")
+	}
+	c := exec.Command("bash", cmdArgs...)
+	c.Stdout, c.Stderr = os.Stdout, os.Stderr
+	return c.Run()
+}
+
+// localIP 猜本机出口 IP（没配 server_host 时给个提示值）。
+func localIP() string {
+	c, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	if a, ok := c.LocalAddr().(*net.UDPAddr); ok {
+		return a.IP.String()
+	}
+	return ""
 }
 
 func cmdTunnel(args []string) error {

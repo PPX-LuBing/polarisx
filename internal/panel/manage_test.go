@@ -212,3 +212,38 @@ func TestApplyNoRestart(t *testing.T) {
 		t.Errorf("配置权限 %o，期望 600", fi.Mode().Perm())
 	}
 }
+
+// 事件日志早就写进表了，但一直没有查看入口；这里把查询的排序/限量/字段钉住。
+func TestEventsOrderAndLimit(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("POLARISX_HOME", dir)
+	store, err := Open(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, m := range []string{"第一条", "第二条", "第三条"} {
+		if err := store.Event(m, "info", "alice"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	evs, err := store.Events(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 {
+		t.Fatalf("limit 没生效，拿到 %d 条", len(evs))
+	}
+	if evs[0].Message != "第三条" || evs[1].Message != "第二条" {
+		t.Errorf("应按时间倒序，实际 %s / %s", evs[0].Message, evs[1].Message)
+	}
+	if evs[0].UserName != "alice" || evs[0].Level != "info" {
+		t.Errorf("字段没读全: %+v", evs[0])
+	}
+	if n := store.EventCount(); n != 3 {
+		t.Errorf("EventCount = %d，期望 3", n)
+	}
+	if _, err := store.Events(0); err != nil {
+		t.Errorf("limit=0 应回落默认值: %v", err)
+	}
+}
