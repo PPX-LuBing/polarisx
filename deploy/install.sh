@@ -4,6 +4,12 @@
 #   bash install.sh            安装二进制 + systemd 单元，并做一次兼容性检查
 #   bash install.sh --takeover 从 Python 版 ixpanel 接管（停旧单元、起新单元）
 #
+# 这个脚本只装二进制与 systemd 单元。装机（xray/证书/订阅前置/加固/建节点）是
+# deploy/provision.sh 的事：
+#   bash provision.sh --yes                          # xray + 前置 + 加固
+#   bash provision.sh --node reality --user alice --yes
+#   bash provision.sh --sub-mode tls --sub-path hash --yes
+#
 # 与 Python 版共用同一份 /usr/local/ixpanel/{settings.json,panel.db}，不迁移数据。
 set -euo pipefail
 
