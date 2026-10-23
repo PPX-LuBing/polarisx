@@ -38,6 +38,24 @@ POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入�
 
 数据目录用 `POLARISX_HOME`（兼容旧的 `IXPANEL_HOME`），默认 `/usr/local/ixpanel`。
 
+## 终端二维码
+
+```bash
+polarisx qr alice              # 每个节点一张链接码（手机扫码导入单节点）
+polarisx qr alice --clash      # 订阅地址的码，带 /clash 后缀
+polarisx qr alice --singbox    # 带 /singbox 后缀
+polarisx qr alice --sub        # 裸订阅地址（base64，老客户端）
+```
+
+**格式后缀必须写进二维码本身**：裸订阅地址返回的是 base64，mihomo/Clash 系客户端
+（如 BetterBox）会把它当 YAML 解析并直接报 `cannot unmarshal !!str ... into config.RawConfig`，
+而扫码之后没法再手动补后缀。
+
+实现用 `github.com/skip2/go-qrcode`（纯 Go，会按标准惩罚分挑掩码）。曾经试过 `rsc.io/qr`，
+它源码里写着 `// TODO: Pick appropriate mask.`、掩码恒为 0 —— 掩码的作用正是避开会让扫码器
+困惑的图案，而这个功能的核心就是拿手机扫，所以换掉了。渲染成半块字符（▀▄█），静默区用库自带的
+4 模块（不再叠一层），输出宽度比一张图小得多。
+
 ## 免域名订阅（cloudflared 临时隧道）
 
 没有域名、也不想给落地机配证书时，用 Cloudflare 的临时隧道把订阅暴露成一个 HTTPS 地址：

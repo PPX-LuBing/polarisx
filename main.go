@@ -63,6 +63,8 @@ func main() {
 		err = cmdSni(args)
 	case "tunnel":
 		err = cmdTunnel(args)
+	case "qr":
+		err = cmdQR(args)
 	case "status":
 		err = cmdStatus(args)
 	case "events":
@@ -114,6 +116,9 @@ func usage() {
   sni [--top N] [--apply --node TAG]
                        在本机实测 SNI 候选（TLS1.3+h2+X25519、排除 Cloudflare 前置），
                        按延迟排名；--apply 把最佳结果写到节点的 sni/dest
+  qr <用户> [--sub|--clash|--singbox]
+                       打印二维码（默认每个节点一张；--clash/--singbox 打订阅地址，
+                       后缀写进码里，手机扫码直接能用）
   status               一眼看全：xray/节点/用户/订阅/落地机地址
   events [--limit N]   看事件日志（停用/预警/改配置都记在这里）
   export [--config PATH]
@@ -617,6 +622,47 @@ func cmdSni(args []string) error {
 	}
 	fmt.Println("  生效：polarisx apply")
 	_ = st
+	return nil
+}
+
+func cmdQR(args []string) error {
+	fs := flag.NewFlagSet("qr", flag.ExitOnError)
+	sub := fs.Bool("sub", false, "打订阅地址（含全部节点）")
+	clash := fs.Bool("clash", false, "订阅地址用 Clash/Mihomo 后缀（隐含 --sub）")
+	singbox := fs.Bool("singbox", false, "订阅地址用 sing-box 后缀（隐含 --sub）")
+	// 同样要防「位置参数在前、选项在后」被 flag 吞掉（qr alice --sub）
+	name, rest := splitNameFirst(args)
+	if name == "" {
+		return fmt.Errorf("用法: polarisx qr <用户名> [--sub|--clash|--singbox]")
+	}
+	_ = fs.Parse(rest)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	u, err := store.UserByName(name)
+	if err != nil {
+		return fmt.Errorf("用户不存在: %s", name)
+	}
+	items, err := store.QRForUser(u, st, *sub, *clash, *singbox)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		label, text, _ := strings.Cut(it, "\n")
+		fmt.Printf("%s\n%s\n", label, text)
+		art, err := panel.RenderQR(text)
+		if err != nil {
+			return err
+		}
+		fmt.Print(art)
+		fmt.Println()
+	}
 	return nil
 }
 
