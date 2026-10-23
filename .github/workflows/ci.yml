@@ -16,6 +16,13 @@ jobs:
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
           go vet ./...
+      - name: 敏感信息扫描（私钥 / 常见凭据不得入库）
+        run: |
+          if git grep -nIE "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}" -- .; then
+            echo "::error::仓库里出现私钥或凭据，请移除后重新提交"; exit 1
+          fi
+          echo "扫描通过：无私钥、无常见凭据格式"
+
       - name: 构建
         run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o polarisx .
       - name: 测试（含与 Python 版的 parity 夹具）

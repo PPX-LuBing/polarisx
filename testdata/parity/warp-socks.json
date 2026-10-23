@@ -43,10 +43,10 @@
       "streamSettings": {
         "network": "tcp",
         "realitySettings": {
-          "dest": "www.microsoft.com:443",
+          "dest": "reality.example.com:443",
           "privateKey": "REALITYPRIV",
           "serverNames": [
-            "www.microsoft.com"
+            "reality.example.com"
           ],
           "shortIds": [
             "0123456789abcdef"
@@ -214,7 +214,7 @@
           {
             "email": "alice",
             "level": 0,
-            "password": "MdoJ5FfjvTJvOrj5x+qAaA=="
+            "password": "2RDhizjitM2kceOTR8MSCA=="
           }
         ],
         "method": "2022-blake3-aes-128-gcm",
@@ -239,7 +239,7 @@
       "settings": {
         "clients": [
           {
-            "auth": "ZxEJ6FPwSMFgv4Dkgre+yMduhv+kmkFYzDkaH+awW1o=",
+            "auth": "EJeIPa4oJCPnIy/RFJrb7lxvAV/1dxKicp4dRV5MFxQ=",
             "email": "alice",
             "level": 0
           }

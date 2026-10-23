@@ -46,14 +46,15 @@ def psk(n):
 
 
 # 生成期望值时用真实路径（要真读证书算指纹）；落盘前再把 DB 里的路径改写成 {REPO} 占位符
+# 私钥不进仓库（.gitignore 挡住）：测试只需要证书本身（公钥部分）
 CERT = os.path.join(TESTDATA, "certs", "test.crt")
 KEY = os.path.join(TESTDATA, "certs", "test.key")
 
 NODES = [
     # tag, proto, net, security, 其它字段
     ("reality-tcp", "vless", "tcp", "reality",
-     {"port": 443, "entry_host": "1.2.3.4", "dest": "www.microsoft.com:443",
-      "sni": "www.microsoft.com", "priv_key": "REALITYPRIV", "pub_key": "REALITYPUB",
+     {"port": 443, "entry_host": "1.2.3.4", "dest": "reality.example.com:443",
+      "sni": "reality.example.com", "priv_key": "REALITYPRIV", "pub_key": "REALITYPUB",
       "short_id": "0123456789abcdef", "flow": "xtls-rprx-vision"}),
     # 多入口节点：订阅里要展开成 -1/-2 两条
     ("tls-vision", "vless", "tcp", "tls",

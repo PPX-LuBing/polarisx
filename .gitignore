@@ -1,6 +1,11 @@
 bin/
 .cache/
 
+# 私钥一律不进仓库（夹具只需要证书本身）
+*.key
+*.pem
+!testdata/certs/test.crt
+
 # 夹具里生成物（不该进仓库）
 testdata/**/*.log
 testdata/**/*.db-wal

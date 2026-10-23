@@ -67,7 +67,7 @@ systemctl enable --now ixpanel-sub ixpanel-collect.timer
 
 ### 已经在生产机上只读演练过（2026-10-23）
 
-拿 一台生产落地机 的**真实数据副本**跑了一遍（`sqlite3 .backup` 复制，不碰运行中的服务）：
+拿一台生产落地机的**真实数据副本**跑了一遍（`sqlite3 .backup` 复制，不碰运行中的服务）：
 
 | 检查项 | 结果 |
 |---|---|
