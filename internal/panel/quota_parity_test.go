@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,6 +28,7 @@ func TestQuotaParity(t *testing.T) {
 		LastResetDue    map[string]any    `json:"last_reset_due"`
 		ParseStats      map[string]any    `json:"parse_stats"`
 		Userinfo        map[string]string `json:"userinfo"`
+		TZOffset        int               `json:"tz_offset_seconds"`
 		AutoResetCount  int               `json:"auto_reset_count"`
 		AutoResetAgain  int               `json:"auto_reset_again"`
 		AfterReset      []any             `json:"after_reset"`
@@ -158,13 +161,29 @@ func TestQuotaParity(t *testing.T) {
 		store, _ := mk(t)
 		defer store.Close()
 		st := Defaults()
+		// expire 是"到期日 23:59:59（本地时区）"，绝对时间戳跟运行时区有关：
+		// 夹具里那个值是生成时区算出来的，所以这里比"它代表的日期时间"，
+		// 这样在任何时区跑测试都成立（其余三个字段仍然逐字节比）。
+		fixLoc := time.FixedZone("fixture", want.TZOffset)
 		for name, exp := range want.Userinfo {
 			u, err := store.UserByName(name)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := UserinfoHeader(u, st); got != exp {
-				t.Errorf("%s:\n  go   : %s\n  python: %s", name, got, exp)
+			got := UserinfoHeader(u, st)
+			gU, gD, gT, gE := parseUserinfo(t, got)
+			wU, wD, wT, wE := parseUserinfo(t, exp)
+			if gU != wU || gD != wD || gT != wT {
+				t.Errorf("%s 用量字段不一致:\n  go   : %s\n  python: %s", name, got, exp)
+			}
+			if (gE == 0) != (wE == 0) {
+				t.Errorf("%s expire 是否为空不一致:\n  go   : %s\n  python: %s", name, got, exp)
+			} else if gE != 0 {
+				gd := time.Unix(gE, 0).In(time.Local).Format("2006-01-02 15:04:05")
+				wd := time.Unix(wE, 0).In(fixLoc).Format("2006-01-02 15:04:05")
+				if gd != wd {
+					t.Errorf("%s expire 代表的日期不一致: go=%s python=%s", name, gd, wd)
+				}
 			}
 		}
 	})
@@ -222,6 +241,32 @@ func TestQuotaParity(t *testing.T) {
 			t.Errorf("采集后用户表不一致: %s", d)
 		}
 	})
+}
+
+// parseUserinfo 拆 "upload=..; download=..; total=..; expire=.."。
+func parseUserinfo(t *testing.T, s string) (up, down, total, expire int64) {
+	t.Helper()
+	for _, part := range strings.Split(s, ";") {
+		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			t.Fatalf("解析 %q 失败: %v", part, err)
+		}
+		switch k {
+		case "upload":
+			up = n
+		case "download":
+			down = n
+		case "total":
+			total = n
+		case "expire":
+			expire = n
+		}
+	}
+	return
 }
 
 func disabledAny(rep Report) []any {

@@ -14,7 +14,17 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import time
 import sys
+
+# 固定 UTC：夹具里含 expire 这类"本地时间"时间戳，若生成机器与运行机器时区不同就会挂
+# （CI runner 是 UTC，开发机常是 UTC+8）。测试也用 TZ=UTC 跑，见 Makefile 与 CI。
+os.environ["TZ"] = "UTC"
+try:
+    import time as _time
+    _time.tzset()
+except AttributeError:      # 非 POSIX 平台没有 tzset
+    pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTDATA = os.path.join(ROOT, "testdata")
@@ -388,6 +398,9 @@ def main():
     restore_pristine()
     qconn.close()
     os.unlink(pristine)
+    # expire 是"到期日 23:59:59（本地时区）"，跟运行时区有关；记下生成时区，
+    # 测试才能做时区无关的比对（见 quota_parity_test.go）
+    quota["tz_offset_seconds"] = -(time.timezone if not time.daylight else time.altzone)
     json.dump(quota, open(os.path.join(PARITY, "quota.json"), "w"),
               ensure_ascii=False, indent=2, sort_keys=True)
     print("  额度期望: 重置 %d 人 / 再次重置 %d 人 / 采集 +%d↑+%d↓ 停用 %d 预警 %d"

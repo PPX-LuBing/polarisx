@@ -30,7 +30,7 @@ Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 
 ```bash
 make build          # 产出 bin/polarisx
-make test           # 单元 + parity
+make test           # 单元 + parity（固定 TZ=UTC，与夹具生成时一致）
 make parity         # 重新生成夹具并跑 parity（需要 Python 版源码）
 POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx doctor
 POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入的 xray 配置
