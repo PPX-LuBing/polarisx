@@ -13,10 +13,21 @@ import (
 
 	"github.com/PPX-LuBing/polarisx/internal/panel"
 	"github.com/PPX-LuBing/polarisx/internal/sub"
+	"github.com/PPX-LuBing/polarisx/internal/tui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
 	if len(os.Args) < 2 {
+		// 与 Python 版一致：裸跑且是终端时直接进 TUI
+		if isTTY() {
+			if err := cmdUI(nil); err != nil {
+				fmt.Fprintln(os.Stderr, "错误: "+err.Error())
+				os.Exit(1)
+			}
+			return
+		}
 		usage()
 		os.Exit(2)
 	}
@@ -31,6 +42,8 @@ func main() {
 		err = cmdDoctor(args)
 	case "sub":
 		err = cmdSub(args)
+	case "ui":
+		err = cmdUI(args)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -44,6 +57,15 @@ func main() {
 	}
 }
 
+// isTTY 判断标准输出是不是终端（管道/重定向时回退到 usage）。
+func isTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
 func usage() {
 	fmt.Print(`polarisx —— Xray 多协议落地机面板（北极星）
 
@@ -52,6 +74,7 @@ func usage() {
   version              显示版本与数据目录
   show [--write]       生成 xray 配置并打印（--write 写到 settings 里的 xray_config）
   sub [--listen ADDR]  启动订阅 HTTP 服务（默认取 settings.sub_listen）
+  ui                   打开终端界面（交互式控制台）
   doctor               自检（数据库 / 配置 / 节点体检）
   help                 这份帮助
 `)
@@ -91,6 +114,23 @@ func cmdShow(args []string) error {
 	}
 	fmt.Printf("已生成 %s\n", st.XrayConfig)
 	return nil
+}
+
+func cmdUI(args []string) error {
+	fs := flag.NewFlagSet("ui", flag.ExitOnError)
+	_ = fs.Parse(args)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	m := tui.New(store, st)
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	return err
 }
 
 func cmdSub(args []string) error {

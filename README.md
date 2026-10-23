@@ -22,7 +22,7 @@ Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 | ③ | 订阅生成：分享链接 / Clash / sing-box | ✅ 链接 22 条 + Clash 18 份 + sing-box 6 份 parity 全过 |
 | ③b | 订阅 HTTP 服务（路径 / header / 停用提示 / HEAD） | ✅ 20 个请求矩阵 parity 全过 |
 | ④ | 流量统计 + 额度 + 每月重置 | ✅ 8 项 parity 全过（含状态型：重置/采集后的用户表逐字段一致） |
-| ⑤ | bubbletea TUI | ⏳ |
+| ⑤ | bubbletea TUI（主菜单/节点/用户/自检/应用） | ✅ 模型级测试 4 项 |
 | ⑥ | 内嵌 Web UI + API | ⏳ |
 | ⑦ | 部署脚本 / systemd / 迁移切换 | ⏳ |
 

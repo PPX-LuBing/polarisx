@@ -1,0 +1,142 @@
+package panel
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// FindXray 找 xray 二进制：settings.xray_bin → 常见路径 → PATH。
+func FindXray(st Settings) string {
+	if st.XrayBin != "" {
+		if _, err := os.Stat(st.XrayBin); err == nil {
+			return st.XrayBin
+		}
+	}
+	for _, p := range []string{"/usr/local/bin/xray", "/usr/bin/xray", "/opt/xray/xray"} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("xray"); err == nil {
+		return p
+	}
+	return ""
+}
+
+// XrayAPI 调一次 xray 的 API 子命令（statsquery / adu / rmu 等）。
+func XrayAPI(st Settings, args []string, timeout time.Duration) (int, string, string, error) {
+	bin := FindXray(st)
+	if bin == "" {
+		return -1, "", "", fmt.Errorf("找不到 xray 二进制（设置 xray_bin 或装到 /usr/local/bin/xray）")
+	}
+	ctx, cancel := contextWithTimeout(timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	rc := 0
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			rc = ee.ExitCode()
+		} else {
+			return -1, out.String(), errb.String(), err
+		}
+	}
+	return rc, out.String(), errb.String(), nil
+}
+
+// APIAvailable xray API 是否可达（TUI 状态行与采集都用它）。
+func APIAvailable(st Settings, timeout time.Duration) bool {
+	rc, _, _, err := XrayAPI(st, []string{"api", "statsquery",
+		"--server=" + st.XrayAPI, "-pattern", "user>>>"}, timeout)
+	return err == nil && rc == 0
+}
+
+// FetchStats 拉 per-user 统计；reset=true 时让 xray 返回「自上次查询以来的增量」。
+// 用增量而不是自己做差：xray 重启会让计数器归零，做差会漏记；增量语义下不存在这种错配，
+// 两个采集器并发也不会重复计账。
+func FetchStats(st Settings, reset bool) (map[string]int64, error) {
+	args := []string{"api", "statsquery", "--server=" + st.XrayAPI, "-pattern", "user>>>"}
+	if reset {
+		args = append(args, "-reset")
+	}
+	rc, out, errb, err := XrayAPI(st, args, 20*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if rc != 0 {
+		return nil, fmt.Errorf("statsquery 失败: %s %s", strings.TrimSpace(out), strings.TrimSpace(errb))
+	}
+	return ParseStats(out), nil
+}
+
+// VerifyConfig 用 `xray -test` 校验配置（校验不过就不该覆盖现有配置）。
+func VerifyConfig(st Settings, path string) error {
+	bin := FindXray(st)
+	if bin == "" {
+		return fmt.Errorf("找不到 xray 二进制，无法校验")
+	}
+	rc, out, errb, err := XrayAPI(st, []string{"run", "-test", "-config", path}, 20*time.Second)
+	if err != nil {
+		return err
+	}
+	if rc != 0 {
+		return fmt.Errorf("xray -test 失败: %s %s", strings.TrimSpace(out), strings.TrimSpace(errb))
+	}
+	return nil
+}
+
+// WriteConfig 原子写配置（0600）。verify=true 时先让 xray 校验，不通过就不动现有配置。
+func WriteConfig(st Settings, cfg map[string]any, path string, verify bool) error {
+	if path == "" {
+		path = st.XrayConfig
+	}
+	body, err := marshalNoEscape(cfg, "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// 临时文件必须以 .json 结尾：xray 靠扩展名判断格式
+	tmp := path + ".tmp.json"
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		return err
+	}
+	if verify {
+		if err := VerifyConfig(st, tmp); err != nil {
+			os.Remove(tmp)
+			return err
+		}
+	}
+	return os.Rename(tmp, path)
+}
+
+// RestartXray 按 settings.restart_cmd 重启 xray。
+func RestartXray(st Settings, quiet bool) error {
+	cmdline := st.RestartCmd
+	if cmdline == "" {
+		cmdline = "systemctl restart xray"
+	}
+	ctx, cancel := contextWithTimeout(30 * time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", cmdline)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("重启失败 (%s): %s", cmdline, strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
+// contextWithTimeout 是 context.WithTimeout 的小包装（集中一处便于调整）。
+func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
+}
