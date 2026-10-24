@@ -270,3 +270,45 @@ func selfSignedCert(t *testing.T) (string, string) {
 	}
 	return certFile, keyFile
 }
+
+// autocert 的缓存文件是「私钥在前、证书在后」的单个 PEM——只解第一块会拿到私钥。
+// 这个测试用同样的排列钉住解析逻辑（真机上就是因为这个把"已签发"显示成"尚未签发"）。
+func TestACMECertExpiryParsesKeyFirstPEM(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(7),
+		Subject:      pkix.Name{CommonName: "cache.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(90 * 24 * time.Hour).Truncate(time.Second),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 私钥在前，证书在后——与 autocert.DirCache 的写法一致
+	blob := append(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+
+	dir := t.TempDir()
+	t.Setenv("POLARISX_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "acme"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "acme", "cache.example.com"), blob, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := ACMECertExpiry("cache.example.com")
+	if err != nil {
+		t.Fatalf("应能从「私钥在前」的缓存里读到证书: %v", err)
+	}
+	if !exp.Equal(tmpl.NotAfter) {
+		t.Errorf("到期时间 = %v，期望 %v", exp, tmpl.NotAfter)
+	}
+}

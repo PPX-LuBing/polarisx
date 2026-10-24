@@ -130,11 +130,26 @@ func ACMECertExpiry(host string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return time.Time{}, fmt.Errorf("缓存里的证书不是 PEM")
+	// autocert 的 DirCache 把「私钥 + 证书链」写在同一个文件里，且**私钥在前**。
+	// 所以不能只解第一块（那是私钥，拿去 ParseCertificate 必然失败），要往后找
+	// CERTIFICATE 块。注意：这里只读到 NotAfter，绝不把私钥内容带出去。
+	var certDER []byte
+	rest := b
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type == "CERTIFICATE" {
+			certDER = block.Bytes
+			break
+		}
 	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	if certDER == nil {
+		return time.Time{}, fmt.Errorf("缓存里没有 CERTIFICATE 块")
+	}
+	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
 		return time.Time{}, err
 	}
