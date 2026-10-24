@@ -110,7 +110,8 @@ func usage() {
 
   version              显示版本与数据目录
   show [--write]       生成 xray 配置并打印（--write 写到 settings 里的 xray_config）
-  sub [--listen ADDR]  启动订阅 HTTP 服务（默认取 settings.sub_listen）
+  sub [--listen ADDR]  启动订阅服务（默认取 settings.sub_listen；
+                       设了 sub_tls=auto 就是 HTTPS，证书自动签发与续期）
   ui                   打开终端界面（交互式控制台）
   web [--listen ADDR]  启动内嵌 Web 面板（默认 127.0.0.1:8090，含 /sub/ 订阅）
   node <add|list|set|del>    节点管理
@@ -1199,7 +1200,7 @@ func cmdSub(args []string) error {
 		return err
 	}
 	defer srv.Close()
-	return srv.ListenAndServe(addr)
+	return srv.Serve(st, addr)
 }
 
 func cmdDoctor(args []string) error {
@@ -1243,6 +1244,11 @@ func cmdDoctor(args []string) error {
 
 	if msg := panel.XrayConfigReadable(st); msg != "" {
 		fmt.Printf("[!!] %s\n", msg)
+	}
+	if setup, err := sub.SetupTLS(st, ""); err != nil {
+		fmt.Printf("[!!] 订阅 TLS 配置有问题: %v\n", err)
+	} else {
+		fmt.Printf("[ok] 订阅 TLS: %s\n", describeTLS(setup))
 	}
 
 	cfg, err := store.BuildConfig(st)
@@ -1313,4 +1319,21 @@ func cmdMigrateSettings(args []string) error {
 		return fmt.Errorf("迁移中止（先把上面这些问题解决，或手工处理这些键）")
 	}
 	return nil
+}
+
+// describeTLS 用一句话说明订阅服务的 TLS 现状（doctor/status 共用）。
+func describeTLS(setup sub.TLSSetup) string {
+	switch setup.Mode {
+	case sub.TLSFiles:
+		return fmt.Sprintf("自带证书（监听 %s，证书 %s）", setup.Listen, setup.Cert)
+	case sub.TLSAuto:
+		out := fmt.Sprintf("ACME 自动证书（监听 %s，挑战端口 %s，域名 %s）",
+			setup.Listen, setup.HTTPListen, strings.Join(setup.Hosts, ","))
+		if exp, err := sub.ACMECertExpiry(setup.Hosts[0]); err == nil {
+			return out + fmt.Sprintf("，证书到期 %s", exp.Format("2006-01-02"))
+		}
+		return out + "，尚未签发（首次访问时自动申请）"
+	default:
+		return fmt.Sprintf("关闭（明文 %s；要 HTTPS 就设 sub_tls=auto）", setup.Listen)
+	}
 }

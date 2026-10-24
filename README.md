@@ -1,6 +1,6 @@
 # PolarisX（北极星）
 
-当前版本：`v2.0.4`
+当前版本：`v2.0.5`
 
 Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 
@@ -33,6 +33,27 @@ POLARISX_HOME=/var/lib/polarisx ./bin/polarisx show      # 打印将要写入的
 ```
 
 数据目录用 `POLARISX_HOME`，默认 `/var/lib/polarisx`。
+
+### 订阅的 HTTPS（内置，不需要 nginx/certbot）
+
+`polarisx sub` 自己就能跑 TLS，证书自动签发、自动续期：
+
+```bash
+polarisx set sub_tls=auto                    # off（默认，明文）/ auto（ACME）/ files（自带证书）
+polarisx set sub_base=https://sub.example.com
+polarisx set sub_tls_listen=:443             # 443 被 xray 占用时改 :8443
+polarisx set sub_http_listen=:80             # ACME 的 HTTP-01 挑战固定走 80
+systemctl restart polarisx-sub
+```
+
+- **auto**：用 ACME（Let's Encrypt）自动申请与续期，证书缓存在 `$POLARISX_HOME/acme`；
+  同时接管明文端口，`/.well-known/acme-challenge/` 交给 ACME，其余请求 301 跳 HTTPS
+- **files**：`sub_tls_cert` / `sub_tls_key` 指向自己的证书
+- **off**（默认）：只跑明文，留给"前面已有反代"的部署
+- `polarisx doctor` 会显示当前模式；auto 模式下还会显示证书到期日
+
+> 面板只监听 `sub_listen`（建议 `127.0.0.1:8080`），公网入口只有 TLS 那一个端口——
+> 订阅正文里是全套节点凭据，明文暴露等于把节点送给链路中间人。
 
 ### 全新机器上装 xray
 

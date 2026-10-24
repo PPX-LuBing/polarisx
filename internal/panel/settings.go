@@ -15,7 +15,7 @@ import (
 // 声明成 var 而不是 const，是为了让发布流程能用
 // `-ldflags "-X .../internal/panel.Version=$(VERSION)"` 把 git tag 注入进来
 // （const 无法被 ldflags 覆盖）。
-var Version = "2.0.4"
+var Version = "2.0.5"
 
 // VersionString 返回给人和给客户端看的版本号：统一带 v 前缀。
 // 无论 Version 被注入成 "2.0.2" 还是 "v2.0.2"，这里都输出 "v2.0.2"。
@@ -57,22 +57,29 @@ type Settings struct {
 	SingboxDNS             string `json:"singbox_dns"`
 	ClashRules             string `json:"clash_rules"`
 	SubTitle               string `json:"sub_title"`
-	ServerCC               string `json:"server_cc"`
-	ServerASN              string `json:"server_asn"`
-	ServerOrg              string `json:"server_org"`
-	NodeNameWithUser       bool   `json:"node_name_with_user"`
-	DefaultQuotaGB         int    `json:"default_quota_gb"`
-	QuotaResetDay          int    `json:"quota_reset_day"`
-	LogFile                string `json:"log_file"`
-	TrafficUnitGiB         bool   `json:"traffic_unit_gib"`
-	Fail2banKick           bool   `json:"fail2ban_kick"`
-	VerifyConfig           bool   `json:"verify_config"`
-	SubTunnel              bool   `json:"sub_tunnel"`
-	SubTunnelTarget        string `json:"sub_tunnel_target"`
-	SubTunnelMetrics       string `json:"sub_tunnel_metrics"`
-	SubTunnelHost          string `json:"sub_tunnel_host"`
-	SubTunnelPrevBase      string `json:"sub_tunnel_prev_base"`
-	CloudflaredBin         string `json:"cloudflared_bin"`
+	// 订阅服务的 TLS。off=明文（由外部反代做 TLS）、auto=ACME 自动签发与续期、
+	// files=用指定证书。默认 off，保持与旧版本一致。
+	SubTLS            string `json:"sub_tls"`
+	SubTLSListen      string `json:"sub_tls_listen"`
+	SubHTTPListen     string `json:"sub_http_listen"`
+	SubTLSCert        string `json:"sub_tls_cert"`
+	SubTLSKey         string `json:"sub_tls_key"`
+	ServerCC          string `json:"server_cc"`
+	ServerASN         string `json:"server_asn"`
+	ServerOrg         string `json:"server_org"`
+	NodeNameWithUser  bool   `json:"node_name_with_user"`
+	DefaultQuotaGB    int    `json:"default_quota_gb"`
+	QuotaResetDay     int    `json:"quota_reset_day"`
+	LogFile           string `json:"log_file"`
+	TrafficUnitGiB    bool   `json:"traffic_unit_gib"`
+	Fail2banKick      bool   `json:"fail2ban_kick"`
+	VerifyConfig      bool   `json:"verify_config"`
+	SubTunnel         bool   `json:"sub_tunnel"`
+	SubTunnelTarget   string `json:"sub_tunnel_target"`
+	SubTunnelMetrics  string `json:"sub_tunnel_metrics"`
+	SubTunnelHost     string `json:"sub_tunnel_host"`
+	SubTunnelPrevBase string `json:"sub_tunnel_prev_base"`
+	CloudflaredBin    string `json:"cloudflared_bin"`
 	// AlertWebhook 是 Go 版新增（Python 版没有）：用量预警/停用时 POST 到这里。
 	// 留空 = 不告警。设置里没有这个键时零值就是空，不影响读 Python 版写的设置。
 	AlertWebhook string `json:"alert_webhook"`
@@ -89,6 +96,9 @@ func Defaults() Settings {
 		XrayAPI:                "127.0.0.1:10085",
 		RestartCmd:             "systemctl restart xray",
 		SubListen:              "0.0.0.0:8080",
+		SubTLS:                 "off",
+		SubTLSListen:           ":443",
+		SubHTTPListen:          ":80",
 		SubPathStyle:           "path",
 		OutboundDomainStrategy: "UseIPv4",
 		DirectPorts:            "22",
