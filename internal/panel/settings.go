@@ -9,10 +9,19 @@ import (
 	"strings"
 )
 
-// Version 是面板版本。声明成 var 而不是 const，是为了让发布流程能用
-// `-ldflags "-X .../internal/panel.Version=v2.0.0"` 把 git tag 注入进来
+// Version 是面板版本，规范形式是**不带 v 前缀**的 semver（如 2.0.2）——git tag 是
+// v2.0.2，注入进来时可能带 v，所以 VersionString() 会归一化后再展示，避免
+// "本地构建显示 2.0.1、Release 显示 v2.0.1" 这种不一致。
+// 声明成 var 而不是 const，是为了让发布流程能用
+// `-ldflags "-X .../internal/panel.Version=$(VERSION)"` 把 git tag 注入进来
 // （const 无法被 ldflags 覆盖）。
 var Version = "2.0.1"
+
+// VersionString 返回给人和给客户端看的版本号：统一带 v 前缀。
+// 无论 Version 被注入成 "2.0.2" 还是 "v2.0.2"，这里都输出 "v2.0.2"。
+func VersionString() string {
+	return "v" + strings.TrimPrefix(strings.TrimSpace(Version), "v")
+}
 
 // SubTitleDefault 订阅标题默认模板；{cc}/{asn} 会在生成时替换。
 const SubTitleDefault = "定制·{cc}·{asn}"

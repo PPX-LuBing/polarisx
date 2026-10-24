@@ -161,7 +161,7 @@ func (s *Server) serveOverview(w http.ResponseWriter) {
 		probe = panel.APIAvailable
 	}
 	doc := overview{
-		Version:    panel.Version,
+		Version:    panel.VersionString(),
 		Home:       panel.Home(),
 		XrayOnline: probe(st, 1500*time.Millisecond),
 		SubBase:    panel.SubBaseFor(st),

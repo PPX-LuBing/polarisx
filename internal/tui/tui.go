@@ -609,7 +609,7 @@ func (m Model) header() string {
 		}
 	}
 	line1 := fmt.Sprintf("%s  %s",
-		titleStyle.Render(fmt.Sprintf("%s %s", panel.ProductName, panel.Version)),
+		titleStyle.Render(fmt.Sprintf("%s %s", panel.ProductName, panel.VersionString())),
 		dimStyle.Render(panel.Home()))
 	status := dot(m.apiKnown && m.apiOK, xray)
 	line2 := strings.Join([]string{

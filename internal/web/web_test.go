@@ -85,8 +85,9 @@ func TestOverviewAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.Version != panel.Version {
-		t.Errorf("版本 %q", d.Version)
+	// 展示层统一带 v 前缀（内部 Version 是不带 v 的规范 semver）
+	if d.Version != panel.VersionString() {
+		t.Errorf("版本 %q，期望 %q", d.Version, panel.VersionString())
 	}
 	if !d.XrayOnline {
 		t.Error("探活桩应返回在线")

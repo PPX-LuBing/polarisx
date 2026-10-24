@@ -38,7 +38,7 @@ func main() {
 	var err error
 	switch cmd {
 	case "version", "-v", "--version":
-		fmt.Printf("polarisx %s (home=%s)\n", panel.Version, panel.Home())
+		fmt.Printf("polarisx %s (home=%s)\n", panel.VersionString(), panel.Home())
 	case "show":
 		err = cmdShow(args)
 	case "doctor":
@@ -77,6 +77,8 @@ func main() {
 		err = cmdExport(args)
 	case "uninstall":
 		err = cmdUninstall(args)
+	case "migrate-settings":
+		err = cmdMigrateSettings(args)
 	case "collect":
 		err = cmdCollect(args)
 	case "help", "-h", "--help":
@@ -131,6 +133,9 @@ func usage() {
   events [--limit N]   看事件日志（停用/预警/改配置都记在这里）
   export [--config PATH]
                        导出生成的 xray 配置；不带参数则列出用户与用量
+  migrate-settings --from <旧 settings.json> [--write]
+                       把旧版（Python 面板）的设置迁过来：类型以代码为准、键一个不挑，
+                       默认只打印计划（含跳过的键与警告），确认后加 --write 才落盘
   uninstall [--yes] [--purge]
                        卸载面板（--purge 连数据一起删；默认保留 panel.db/settings.json）
   tunnel [status|on|off|refresh]
@@ -918,7 +923,7 @@ func cmdStatus(args []string) error {
 	if host == "" {
 		host = localIP()
 	}
-	fmt.Printf("polarisx     : %s (%s)\n", panel.Version, panel.Home())
+	fmt.Printf("polarisx     : %s (%s)\n", panel.VersionString(), panel.Home())
 	fmt.Printf("xray 二进制  : %s\n", firstNonEmptyStr(panel.FindXray(st), "未找到"))
 	cfgNote := ""
 	if _, err := os.Stat(st.XrayConfig); err != nil {
@@ -1224,7 +1229,7 @@ func cmdDoctor(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("polarisx %s   home=%s\n", panel.Version, panel.Home())
+	fmt.Printf("polarisx %s   home=%s\n", panel.VersionString(), panel.Home())
 	if _, err := os.Stat(panel.DBPath()); err != nil {
 		fmt.Printf("[!!] 数据库不存在: %s（先运行 polarisx node add 或通过 TUI 创建首个节点）\n", panel.DBPath())
 		return nil
@@ -1280,4 +1285,50 @@ func marshalPretty(v any) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(sb.String()), nil
+}
+
+// cmdMigrateSettings 把旧版 settings.json 迁到当前版本。默认只打印计划。
+func cmdMigrateSettings(args []string) error {
+	fs := flag.NewFlagSet("migrate-settings", flag.ExitOnError)
+	from := fs.String("from", "", "旧版 settings.json 的路径")
+	write := fs.Bool("write", false, "确认无误后写入（默认只打印计划，不改任何东西）")
+	except := fs.String("except", "", "逗号分隔：这些键保持当前值不动（例如 sub_title）")
+	_ = fs.Parse(args)
+	if *from == "" {
+		return fmt.Errorf("要指定 --from <旧 settings.json>，例如：\n" +
+			"  polarisx migrate-settings --from /root/ixpanel-backup-*/ixpanel-data/settings.json")
+	}
+	var keep []string
+	if strings.TrimSpace(*except) != "" {
+		keep = strings.Split(*except, ",")
+	}
+	plan, _, err := panel.MigrateSettingsFile(*from, !*write, keep)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("旧设置: %s\n", *from)
+	fmt.Printf("将改动 %d 项", len(plan.Changed))
+	if *write {
+		fmt.Println("（已写入）")
+	} else {
+		fmt.Println("（预览；加 --write 才落盘）")
+	}
+	for _, c := range plan.Changed {
+		fmt.Printf("  %-24s %v -> %v\n", c.Key, c.Old, c.New)
+	}
+	if len(plan.Skipped) > 0 {
+		fmt.Printf("旧版有、当前版本不认的键 %d 个（已跳过，未丢弃源文件）:\n  %s\n",
+			len(plan.Skipped), strings.Join(plan.Skipped, " "))
+	}
+	for _, w := range plan.Warnings {
+		fmt.Printf("  ! %s\n", w)
+	}
+	if len(plan.Errors) > 0 {
+		fmt.Printf("有 %d 项类型对不上，**没有写入任何东西**:\n", len(plan.Errors))
+		for _, e := range plan.Errors {
+			fmt.Printf("  ✗ %s\n", e)
+		}
+		return fmt.Errorf("迁移中止（先把上面这些问题解决，或手工处理这些键）")
+	}
+	return nil
 }

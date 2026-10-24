@@ -75,7 +75,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch path {
 	case "/", "/index.html":
-		writeText(w, 200, fmt.Sprintf("%s %s ok\n", panel.ProductName, panel.Version), nil)
+		writeText(w, 200, fmt.Sprintf("%s %s ok\n", panel.ProductName, panel.VersionString()), nil)
 		return
 	case "/health":
 		writeText(w, 200, "ok\n", nil)

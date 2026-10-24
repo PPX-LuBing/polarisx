@@ -96,11 +96,12 @@ func TestHTTPGolden(t *testing.T) {
 			for k, wantV := range exp.Headers {
 				gotV := resp.Header.Get(k)
 				if k == "content-length" {
-					// 长度随归一化后的正文一起比
+					// 这个头必须等于**实际发出的**正文长度（不能拿夹具正文的长度比：
+					// 版本号归一化后长度会差一个字节，那是测试自己的归一化造成的）。
 					if exp.Body == nil {
 						continue // HEAD 的 Content-Length 由下面的自洽性检查覆盖
 					}
-					wantV = strconv.Itoa(len(wantBody))
+					wantV = strconv.Itoa(len(body))
 				}
 				if gotV != wantV {
 					t.Errorf("header %s: %q，期望 %q", k, gotV, wantV)
@@ -142,10 +143,13 @@ func TestHTTPGolden(t *testing.T) {
 // 版本号不是行为：它每个 release 都变。若不归一化，每次升版本都会让这个夹具变红，
 // 然后人就会去手改夹具——那正是我们要避免的事（手改期望值等于把测试改瞎）。
 // 生成时间戳早已按同样理由归一化。
-var versionRe = regexp.MustCompile(`(?m)^(\S+) \d+\.\d+\.\d+(.*ok)$`)
+// 版本号出现在多处（健康检查的 "<产品名> <版本> ok"、首页正文里的版本字样），
+// 所以不锚定行首，直接把任意 vX.Y.Z / X.Y.Z 换成占位符——两边都换，比的是"除了
+// 版本号以外是否一致"。版本号不是行为：它每个 release 都变。
+var versionRe = regexp.MustCompile(`v?\d+\.\d+\.\d+`)
 
 func normalizeVersion(s string) string {
-	return versionRe.ReplaceAllString(s, "$1 {VERSION}$2")
+	return versionRe.ReplaceAllString(s, "{VERSION}")
 }
 
 // normalizeTimestamp 把订阅头部的「# 生成时间 ...」归一化（每次生成都不同）。

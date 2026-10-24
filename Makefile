@@ -6,6 +6,8 @@ GO      ?= go
 
 # 发布用：交叉编译多平台 + 校验和（CI 在打 tag 时调用，也可本地跑）
 VERSION ?= dev
+# git tag 是 v2.0.2，但注入给代码的版本号统一去掉 v（VersionString 展示时再加回来）
+VERSION := $(patsubst v%,%,$(VERSION))
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 LDFLAGS := -s -w -X github.com/PPX-LuBing/polarisx/internal/panel.Version=$(VERSION)
 
