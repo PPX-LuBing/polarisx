@@ -1351,28 +1351,30 @@ func (m Model) trafficView() string {
 	b.WriteString(headerStyle.Render("流量统计") + "\n\n")
 	// TrafficSeries 会把没有流量的空桶也返回（图表才连得上），所以"有没有数据"
 	// 要看总量而不是长度。
-	if up, down := panel.TrafficTotal(m.traffic24); up+down == 0 {
-		b.WriteString("  " + dimStyle.Render("最近 24 小时没有流量记录（有流量后这里会出现曲线）") + "\n")
-		return b.String()
-	}
-
-	// 近 24 小时：迷你图 + 峰值标记
-	vals := make([]int64, len(m.traffic24))
-	peak, peakAt := int64(0), 0
-	for i, p := range m.traffic24 {
-		vals[i] = p.Up + p.Down
-		if vals[i] > peak {
-			peak, peakAt = vals[i], i
+	up24, down24 := panel.TrafficTotal(m.traffic24)
+	if up24+down24 == 0 {
+		// Keep longer windows visible: a quiet last day must not hide useful
+		// seven-day and thirty-day history.
+		b.WriteString("  " + dimStyle.Render("最近 24 小时没有流量记录") + "\n")
+	} else {
+		// 近 24 小时：迷你图 + 峰值标记
+		vals := make([]int64, len(m.traffic24))
+		peak, peakAt := int64(0), 0
+		for i, p := range m.traffic24 {
+			vals[i] = p.Up + p.Down
+			if vals[i] > peak {
+				peak, peakAt = vals[i], i
+			}
 		}
+		fmt.Fprintf(&b, "  %s  %s\n", headerStyle.Render("近 24 小时"), panel.TrafficSummary(m.traffic24))
+		b.WriteString("  " + selStyle.Render(panel.Sparkline(vals)) + "\n")
+		if peak > 0 {
+			b.WriteString("  " + strings.Repeat(" ", peakAt) + warnStyle.Render("↑峰值 "+
+				panel.HumanBytes(peak)) + "\n")
+		}
+		fmt.Fprintf(&b, "  %s\n\n", dimStyle.Render(m.traffic24[0].Label+" … "+
+			m.traffic24[len(m.traffic24)-1].Label))
 	}
-	fmt.Fprintf(&b, "  %s  %s\n", headerStyle.Render("近 24 小时"), panel.TrafficSummary(m.traffic24))
-	b.WriteString("  " + selStyle.Render(panel.Sparkline(vals)) + "\n")
-	if peak > 0 {
-		b.WriteString("  " + strings.Repeat(" ", peakAt) + warnStyle.Render("↑峰值 "+
-			panel.HumanBytes(peak)) + "\n")
-	}
-	fmt.Fprintf(&b, "  %s\n\n", dimStyle.Render(m.traffic24[0].Label+" … "+
-		m.traffic24[len(m.traffic24)-1].Label))
 
 	// 7 天 / 30 天：只要合计
 	if len(m.traffic7) > 0 {
@@ -1422,10 +1424,10 @@ func editableSettings() []editableSetting {
 				return nil
 			}},
 		{key: "quota_reset_day", label: "每月重置日",
-			hint: "1-28，避免 29-31 在短月里跳过", pick: []string{
-				"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+			hint: "0=关闭；1-28，避免 29-31 在短月里跳过", pick: []string{
+				"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
 				"15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28"}},
-		{key: "clash_rules", label: "分流预设", pick: []string{"myclash", "community"},
+		{key: "clash_rules", label: "分流预设", pick: []string{"myclash", "community", "minimal", "standard", "full"},
 			hint: "订阅里 Clash 的分流规则集"},
 		{key: "outbound_domain_strategy", label: "出口 IP 族",
 			pick: []string{"UseIPv4", "AsIs", "UseIP", "UseIPv6"},
@@ -1462,13 +1464,23 @@ func applySetting(st *panel.Settings, key, val string) error {
 		st.SubBase = val
 	case "quota_reset_day":
 		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 || n > 28 {
-			return fmt.Errorf("重置日只能是 1-28（避免 29-31 在短月里跳过）")
+		if err != nil || n < 0 || n > 28 {
+			return fmt.Errorf("重置日只能是 0-28（0=关闭，避免 29-31 在短月里跳过）")
 		}
 		st.QuotaResetDay = n
 	case "clash_rules":
+		if val != "" {
+			if _, ok := panel.RulePresets[val]; !ok {
+				return fmt.Errorf("未知分流预设: %s", val)
+			}
+		}
 		st.ClashRules = val
 	case "outbound_domain_strategy":
+		switch val {
+		case "AsIs", "UseIP", "UseIPv4", "UseIPv6":
+		default:
+			return fmt.Errorf("未知出口 IP 族: %s", val)
+		}
 		st.OutboundDomainStrategy = val
 	case "sub_title":
 		st.SubTitle = val

@@ -673,8 +673,8 @@ func TestTUISettingsEdit(t *testing.T) {
 	if err := applySetting(&st, "quota_reset_day", "31"); err == nil {
 		t.Error("重置日 31 应被拒绝")
 	}
-	if err := applySetting(&st, "quota_reset_day", "0"); err == nil {
-		t.Error("重置日 0 应被拒绝")
+	if err := applySetting(&st, "quota_reset_day", "0"); err != nil {
+		t.Errorf("重置日 0 应表示关闭自动重置: %v", err)
 	}
 	if err := applySetting(&st, "quota_reset_day", "15"); err != nil {
 		t.Errorf("重置日 15 应通过: %v", err)
