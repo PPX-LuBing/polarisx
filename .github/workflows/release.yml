@@ -28,7 +28,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 单元文件一起发布：这样新机器上只拷 install.sh + --from-release 也能装全
           gh release create "${GITHUB_REF_NAME}" \
             --title "PolarisX ${GITHUB_REF_NAME}" \
             --generate-notes \
-            dist/polarisx-* dist/SHA256SUMS
+            dist/polarisx-* dist/SHA256SUMS \
+            deploy/polarisx-*.service deploy/polarisx-*.timer

@@ -34,6 +34,11 @@ POLARISX_HOME=/var/lib/polarisx ./bin/polarisx show      # 打印将要写入的
 
 数据目录用 `POLARISX_HOME`，默认 `/var/lib/polarisx`。
 
+> **安装脚本要和 `deploy/` 里的 systemd 单元文件同目录**：单元缺失时它会先尝试从同一个
+> Release 取，取不到就**直接报错退出**（不会静默跳过——那样 `--start` 会因为单元不存在而
+> 失败，报错却离真正的原因很远）。所以全新机器上推荐整目录使用：
+> `bash deploy/install.sh --from-release v2.0.2 --start`。
+
 golden 基线位于 `testdata/golden/`，输入夹具位于 `testdata/fixture*/` 并冻结。实现有意改变时，先运行 `UPDATE_GOLDEN=1 go test ./internal/panel ./internal/sub` 更新基线，再检查并提交生成的 diff；不需要改变行为时不要更新。该命令可重复运行且幂等。
 
 ## 用量告警（webhook）

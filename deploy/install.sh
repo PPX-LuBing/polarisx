@@ -107,8 +107,46 @@ install -d -m 0700 "$HOME_DIR"
 chmod 0700 "$HOME_DIR"
 
 echo "==> 安装 systemd 单元"
+# 单元文件必须和本脚本同目录。脚本被单独拷过来（只 scp 了 install.sh）时，先从同一个
+# Release 取；取不到就**明确报错中止**，绝不静默跳过——那样 --start 会因为单元不存在
+# 而失败，报错却离真正的原因很远（本仓库踩过：只传了脚本，单元没更新还没人发现）。
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+unit_src_dir="$script_dir"
+missing=()
+need_fetch=0
 for u in "${UNITS[@]}"; do
-  install -m 0644 "$(dirname "$0")/$u" "$UNIT_DIR/$u"
+  [ -f "$script_dir/$u" ] || need_fetch=1
+done
+if [ "$need_fetch" = "1" ]; then
+  if [ -n "$FROM_RELEASE" ]; then
+    unit_src_dir="$(mktemp -d)"
+    trap 'rm -rf "$unit_src_dir"' EXIT
+    for u in "${UNITS[@]}"; do
+      [ -f "$script_dir/$u" ] && continue
+      if curl -fsSL --retry 2 -o "$unit_src_dir/$u" "$RELEASE_BASE_URL/$FROM_RELEASE/$u" 2>/dev/null \
+         && [ -s "$unit_src_dir/$u" ]; then
+        echo "  从 Release 取到 $u"
+      else
+        rm -f "$unit_src_dir/$u"
+        missing+=("$u")
+      fi
+    done
+  else
+    for u in "${UNITS[@]}"; do
+      [ -f "$script_dir/$u" ] || missing+=("$u")
+    done
+  fi
+fi
+if [ "${#missing[@]}" -gt 0 ]; then
+  echo "错误：缺少 systemd 单元文件：${missing[*]}" >&2
+  echo "  它们必须和 install.sh 放在同一目录。两种办法：" >&2
+  echo "    1) 从仓库里运行：bash deploy/install.sh ..." >&2
+  echo "    2) 把整个 deploy/ 目录拷到机器上再运行" >&2
+  echo "  （单元文件已加入 Release 产物，之后的版本 --from-release 可自动取到）" >&2
+  exit 1
+fi
+for u in "${UNITS[@]}"; do
+  install -m 0644 "$unit_src_dir/$u" "$UNIT_DIR/$u"
 done
 systemctl daemon-reload
 
