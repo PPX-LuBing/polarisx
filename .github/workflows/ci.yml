@@ -14,7 +14,8 @@ jobs:
           go-version: "1.27"
       - name: 格式与静态检查
         run: |
-          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          files="$(git ls-files '*.go')"
+          test -z "$(gofmt -l $files)" || { gofmt -l $files; exit 1; }
           go vet ./...
       - name: 敏感信息扫描（私钥 / 常见凭据不得入库）
         run: |
@@ -25,7 +26,7 @@ jobs:
 
       - name: 构建
         run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o polarisx .
-      - name: 测试（含与 Python 版的 parity 夹具）
+      - name: 测试（含固定 golden 回归基线）
         run: go test ./... -v
       - name: 竞态检测
         run: go test -race ./internal/panel ./internal/sub ./internal/tui ./internal/web

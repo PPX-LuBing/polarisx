@@ -33,7 +33,7 @@ vet:
 	$(GO) vet $(PKG)
 
 fmt:
-	gofmt -w .
+	gofmt -w $(shell git ls-files '*.go')
 
 run: build
 	./$(BIN) doctor
