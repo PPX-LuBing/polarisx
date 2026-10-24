@@ -150,7 +150,7 @@
       "status": 200
     },
     "index": {
-      "body": "polarisx 1.5.0 ok\n",
+      "body": "polarisx 2.0.0 ok\n",
       "headers": {
         "cache-control": "no-store",
         "content-length": "17",
@@ -227,7 +227,7 @@
       "status": 200
     },
     "root": {
-      "body": "polarisx 1.5.0 ok\n",
+      "body": "polarisx 2.0.0 ok\n",
       "headers": {
         "cache-control": "no-store",
         "content-length": "17",

@@ -10,9 +10,9 @@ import (
 )
 
 // Version 是面板版本。声明成 var 而不是 const，是为了让发布流程能用
-// `-ldflags "-X .../internal/panel.Version=v1.5.0"` 把 git tag 注入进来
+// `-ldflags "-X .../internal/panel.Version=v2.0.0"` 把 git tag 注入进来
 // （const 无法被 ldflags 覆盖）。
-var Version = "1.5.0"
+var Version = "2.0.0"
 
 // SubTitleDefault 订阅标题默认模板；{cc}/{asn} 会在生成时替换。
 const SubTitleDefault = "定制·{cc}·{asn}"
