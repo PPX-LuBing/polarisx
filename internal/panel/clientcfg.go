@@ -45,7 +45,10 @@ func (s *Store) BuildClientOutbound(n Node, u User, st Settings) (map[string]any
 		out["settings"] = map[string]any{"servers": []any{map[string]any{
 			"address": addr, "port": port, "password": u.Password}}}
 	case "shadowsocks":
-		key, err := s.UserNodeKey(u.ID, n)
+		// SS2022 的**客户端**密码是「服务端PSK:用户PSK」，不是裸的用户 PSK。
+		// 这里原先用 UserNodeKey（裸的用户 PSK），于是自检对 SS2022 节点永远
+		// 认证失败；clash/singbox/订阅链接都走 SSClientPassword，所以只有自检错。
+		key, err := s.SSClientPassword(u, n)
 		if err != nil {
 			return nil, err
 		}

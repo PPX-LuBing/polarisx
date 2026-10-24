@@ -163,3 +163,46 @@ func TestSelfTestSkipped(t *testing.T) {
 		}
 	}
 }
+
+// SS2022 的客户端密码必须是「服务端PSK:用户PSK」——只给用户 PSK 会认证失败。
+// 这里之前用的是裸的 UserNodeKey，导致自检对 SS2022 节点永远不通
+// （clash/singbox/订阅链接都走 SSClientPassword，所以只有自检错）。
+func TestBuildClientOutboundSS2022Password(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("POLARISX_HOME", dir)
+	store, err := Open(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	st := Defaults()
+	st.ServerHost = "203.0.113.9"
+
+	u, err := store.CreateUser("alice", 10, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := Node{Tag: "s1", Proto: "shadowsocks", Net: "tcp", Security: "none",
+		Port: 30003, EntryHost: "1.2.3.4", Method: "2022-blake3-aes-128-gcm",
+		SSKey: "SERVERPSK=="}
+	out, err := store.BuildClientOutbound(n, u, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pw := out["settings"].(map[string]any)["servers"].([]any)[0].(map[string]any)["password"].(string)
+
+	userKey, err := store.UserNodeKey(u.ID, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pw == userKey {
+		t.Fatal("客户端密码不能是裸的用户 PSK（SS2022 要拼服务端 PSK）")
+	}
+	if want := n.SSKey + ":" + userKey; pw != want {
+		t.Errorf("客户端密码 = %q，期望 %q", pw, want)
+	}
+	// 与 clash / singbox / 订阅链接保持一致
+	if cp, err := store.SSClientPassword(u, n); err != nil || cp != pw {
+		t.Errorf("与 SSClientPassword 不一致: %q vs %q (%v)", pw, cp, err)
+	}
+}
