@@ -157,7 +157,9 @@ func TunnelOn(ctx context.Context, s *Store, st Settings, download bool, waitSec
 }
 
 func rollbackTunnelSettings(st Settings) {
-	if HasSystemd() {
+	// If it was already enabled, leave its existing unit running; a failed
+	// refresh must not turn a previously healthy tunnel into a stopped one.
+	if !st.SubTunnel && HasSystemd() {
 		_ = exec.Command("systemctl", "disable", "--now",
 			"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer").Run()
 	}

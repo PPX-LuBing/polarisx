@@ -362,6 +362,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == viewTraffic {
 				m.loadTraffic()
 			}
+			if m.view == viewTunnel {
+				return m, m.loadTunnelStatus()
+			}
 			m.refreshStatus()
 			return m, nil
 		case "?", "h":
