@@ -65,6 +65,8 @@ func main() {
 		err = cmdTunnel(args)
 	case "qr":
 		err = cmdQR(args)
+	case "selftest":
+		err = cmdSelfTest(args)
 	case "status":
 		err = cmdStatus(args)
 	case "events":
@@ -119,6 +121,9 @@ func usage() {
   qr <用户> [--sub|--clash|--singbox]
                        打印二维码（默认每个节点一张；--clash/--singbox 打订阅地址，
                        后缀写进码里，手机扫码直接能用）
+  selftest [--node TAG] [--user NAME] [--json]
+                       在本机起 xray 客户端，逐节点实测出口 IP 与延迟
+                       （用来分清「服务端坏了」还是「你的网络/客户端问题」）
   status               一眼看全：xray/节点/用户/订阅/落地机地址
   events [--limit N]   看事件日志（停用/预警/改配置都记在这里）
   export [--config PATH]
@@ -682,6 +687,236 @@ func cmdQR(args []string) error {
 		fmt.Println()
 	}
 	return nil
+}
+
+func cmdSelfTest(args []string) error {
+	fs := flag.NewFlagSet("selftest", flag.ExitOnError)
+	only := fs.String("node", "", "只测这个 tag")
+	uname := fs.String("user", "", "用这个用户测（默认挑第一个能用的）")
+	base := fs.Int("port", 18080, "客户端 socks 起始端口（每个节点 +1）")
+	timeout := fs.Duration("timeout", 25*time.Second, "单个节点的超时")
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	showCfg := fs.Bool("show-config", false, "只打印将要用的客户端配置（排障用）")
+	_ = fs.Parse(args)
+
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	bin := panel.FindXray(st)
+	if bin == "" {
+		return fmt.Errorf("找不到 xray 二进制（设置 xray_bin 或装到 /usr/local/bin/xray）")
+	}
+	nodes, err := store.Nodes(true)
+	if err != nil {
+		return err
+	}
+	if *only != "" {
+		n, err := store.NodeByTag(*only)
+		if err != nil {
+			return fmt.Errorf("节点不存在: %s", *only)
+		}
+		nodes = []panel.Node{n}
+	}
+	if len(nodes) == 0 {
+		return fmt.Errorf("没有启用的节点")
+	}
+
+	var results []panel.SelfTestResult
+	port := *base
+	for _, n := range nodes {
+		u, err := pickUserFor(store, n, *uname)
+		if err != nil {
+			results = append(results, panel.SelfTestResult{Tag: n.Tag, Proto: n.Proto,
+				Err: err.Error()})
+			port++
+			continue
+		}
+		if why := panel.SelfTestSkipped(n); why != "" {
+			results = append(results, panel.SelfTestResult{Tag: n.Tag, Proto: n.Proto,
+				Skipped: true, Err: why})
+			port++
+			continue
+		}
+		if *showCfg {
+			cfg, err := store.SelfTestConfig(n, u, st, port)
+			if err != nil {
+				return err
+			}
+			body, _ := panel.MarshalIndent(cfg)
+			fmt.Printf("== %s（用用户 %s）==\n%s\n", n.Tag, u.Name, body)
+			port++
+			continue
+		}
+		res := runSelfTest(store, st, bin, n, u, port, *timeout)
+		results = append(results, res)
+		port++
+	}
+
+	if *showCfg {
+		return nil
+	}
+	if *asJSON {
+		b, _ := panel.MarshalIndent(results)
+		fmt.Print(b)
+	} else {
+		fmt.Printf("本机实测 %d 个节点（用 %s 起客户端，经 socks 代理访问外网）\n\n", len(results), bin)
+		fmt.Printf("  %-16s %-9s %-6s %-10s %-18s %s\n", "节点", "协议", "结果", "延迟", "出口 IP", "说明")
+		for _, r := range results {
+			mark := "✓ 通"
+			switch {
+			case r.Skipped:
+				mark = "— 跳过"
+			case !r.OK:
+				mark = "✗ 不通"
+			}
+			fmt.Printf("  %-16s %-9s %-6s %-10s %-18s %s\n", r.Tag, r.Proto, mark,
+				firstNonEmptyStr(r.Latency, "-"), firstNonEmptyStr(r.ExitIP, "-"), r.Err)
+		}
+	}
+	bad, skipped, tested := 0, 0, 0
+	for _, r := range results {
+		if r.Skipped {
+			skipped++
+			continue
+		}
+		tested++
+		if !r.OK {
+			bad++
+		}
+	}
+	if bad > 0 {
+		return fmt.Errorf("%d/%d 个节点不通", bad, tested)
+	}
+	if skipped > 0 && !*asJSON {
+		fmt.Printf("\n%d 个节点已跳过（见上表说明）。", skipped)
+	}
+	if !*asJSON {
+		fmt.Println("\n全部节点可用。若你的客户端仍超时，问题在客户端或本地网络，不在服务端。")
+	}
+	return nil
+}
+
+// pickUserFor 挑一个能用这个节点的用户（默认第一个启用的）。
+func pickUserFor(store *panel.Store, n panel.Node, name string) (panel.User, error) {
+	if name != "" {
+		u, err := store.UserByName(name)
+		if err != nil {
+			return panel.User{}, fmt.Errorf("用户不存在: %s", name)
+		}
+		return u, nil
+	}
+	users, err := store.Users()
+	if err != nil {
+		return panel.User{}, err
+	}
+	for _, u := range users {
+		if u.Enable != 1 {
+			continue
+		}
+		ns, err := store.NodesForUser(u, true)
+		if err != nil {
+			continue
+		}
+		for _, x := range ns {
+			if x.Tag == n.Tag {
+				return u, nil
+			}
+		}
+	}
+	return panel.User{}, fmt.Errorf("没有启用用户能访问这个节点")
+}
+
+// runSelfTest 起一个临时 xray 客户端，经 socks 代理实测这个节点。
+func runSelfTest(store *panel.Store, st panel.Settings, bin string,
+	n panel.Node, u panel.User, socksPort int, timeout time.Duration) panel.SelfTestResult {
+	res := panel.SelfTestResult{Tag: n.Tag, Proto: n.Proto}
+	cfg, err := store.SelfTestConfig(n, u, st, socksPort)
+	if err != nil {
+		res.Err = err.Error()
+		return res
+	}
+	body, err := panel.MarshalIndent(cfg)
+	if err != nil {
+		res.Err = err.Error()
+		return res
+	}
+	dir, err := os.MkdirTemp("", "polarisx-selftest-")
+	if err != nil {
+		res.Err = err.Error()
+		return res
+	}
+	defer os.RemoveAll(dir)
+	cfgPath := filepath.Join(dir, "client.json")
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		res.Err = err.Error()
+		return res
+	}
+	if out, err := exec.Command(bin, "-test", "-config", cfgPath).CombinedOutput(); err != nil {
+		res.Err = "客户端配置没通过 xray 校验: " + strings.TrimSpace(string(out))
+		return res
+	}
+	cmd := exec.Command(bin, "run", "-config", cfgPath)
+	if err := cmd.Start(); err != nil {
+		res.Err = err.Error()
+		return res
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
+
+	proxy := fmt.Sprintf("socks5h://127.0.0.1:%d", socksPort)
+	// 等 socks 端口起来
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), 300*time.Millisecond); err == nil {
+			c.Close()
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	// 1) 204 探活（拿延迟）
+	start := time.Now()
+	code, err := curlThrough(proxy, "http://www.gstatic.com/generate_204", timeout)
+	if err != nil || code != "204" {
+		res.Err = fmt.Sprintf("204 探测失败（http=%s）: %v", code, err)
+		return res
+	}
+	res.Latency = fmt.Sprintf("%dms", time.Since(start).Milliseconds())
+	// 2) 出口 IP（确认真的从落地机出去）
+	if ip, err := curlBody(proxy, "https://api.ipify.org", timeout); err == nil {
+		res.ExitIP = strings.TrimSpace(ip)
+	}
+	res.OK = true
+	return res
+}
+
+func curlThrough(proxy, url string, timeout time.Duration) (string, error) {
+	out, err := runCurl(proxy, url, timeout, true)
+	return out, err
+}
+
+func curlBody(proxy, url string, timeout time.Duration) (string, error) {
+	return runCurl(proxy, url, timeout, false)
+}
+
+func runCurl(proxy, url string, timeout time.Duration, codeOnly bool) (string, error) {
+	args := []string{"-s", "--max-time", fmt.Sprintf("%d", int(timeout.Seconds())),
+		"-x", proxy}
+	if codeOnly {
+		args = append(args, "-o", os.DevNull, "-w", "%{http_code}")
+	}
+	args = append(args, url)
+	out, err := exec.Command("curl", args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 func cmdStatus(args []string) error {

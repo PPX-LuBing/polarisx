@@ -38,6 +38,27 @@ POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入�
 
 数据目录用 `POLARISX_HOME`（兼容旧的 `IXPANEL_HOME`），默认 `/usr/local/ixpanel`。
 
+## 节点自检（selftest）
+
+```bash
+polarisx selftest                  # 逐节点实测
+polarisx selftest --node ix-reality
+polarisx selftest --show-config    # 只打印将要用的客户端配置（排障用）
+polarisx selftest --json
+```
+
+做法是**在本机起一个 xray 客户端**（socks 入站 + 被测节点的出站），经它访问
+`generate_204` 拿延迟、访问 `api.ipify.org` 确认出口 IP 确实是这台落地机。
+
+存在的意义：客户端报超时时，用它一条命令分清**服务端坏了**还是**你的网络/客户端问题**。
+字段细节也在这里被钉住（比如自签证书必须 `pinnedPeerCertSha256` —— Xray 26 已移除
+`allowInsecure`；SS2022 的 method 不能去掉 `2022-` 前缀）。
+
+**hysteria2 会被如实跳过**：Xray 自带的 hy2 客户端在当前环境连自家 hy2 服务端都握不上手
+（实测 UUID 形式 auth、原始 base64 auth、base64 解码后的原始字节三种都报
+`auth failed code 404`；同一时刻 mihomo 连同一个服务端一次就通）。这是 Xray 客户端侧的
+限制，不是服务端问题，所以标记为"跳过"而不是"不通"。
+
 ## TUI 写操作
 
 `polarisx ui` 里现在不只是看，还能改：
