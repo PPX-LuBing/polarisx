@@ -89,8 +89,10 @@ if [ -n "$FROM_RELEASE" ]; then
   release_url="$RELEASE_BASE_URL/$FROM_RELEASE/$RELEASE_ASSET"
   sums_url="$RELEASE_BASE_URL/$FROM_RELEASE/SHA256SUMS"
   echo "==> 下载 $RELEASE_ASSET ($FROM_RELEASE)"
-  curl -fsSL --retry 3 -o "$tmp_dir/$RELEASE_ASSET" "$release_url"
-  curl -fsSL --retry 3 -o "$tmp_dir/SHA256SUMS" "$sums_url"
+  curl -fsSL --retry 3 --connect-timeout 10 --max-time 300 \
+      -o "$tmp_dir/$RELEASE_ASSET" "$release_url"
+  curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 \
+      -o "$tmp_dir/SHA256SUMS" "$sums_url"
   expected="$(awk -v f="$RELEASE_ASSET" '$2 == f || $2 == "*" f { print $1; exit }' "$tmp_dir/SHA256SUMS")"
   [ "${#expected}" = 64 ] || { echo "SHA256SUMS 中找不到 $RELEASE_ASSET" >&2; exit 1; }
   actual="$(sha256sum "$tmp_dir/$RELEASE_ASSET" | awk '{print $1}')"
@@ -123,7 +125,8 @@ if [ "$need_fetch" = "1" ]; then
     trap 'rm -rf "$unit_src_dir"' EXIT
     for u in "${UNITS[@]}"; do
       [ -f "$script_dir/$u" ] && continue
-      if curl -fsSL --retry 2 -o "$unit_src_dir/$u" "$RELEASE_BASE_URL/$FROM_RELEASE/$u" 2>/dev/null \
+      if curl -fsSL --retry 2 --connect-timeout 10 --max-time 60 \
+           -o "$unit_src_dir/$u" "$RELEASE_BASE_URL/$FROM_RELEASE/$u" 2>/dev/null \
          && [ -s "$unit_src_dir/$u" ]; then
         echo "  从 Release 取到 $u"
       else
