@@ -11,7 +11,7 @@
   "default_quota_gb": 100,
   "direct_ports": "22",
   "fail2ban_kick": true,
-  "log_file": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/ixpanel.log",
+  "log_file": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/polarisx.log",
   "node_name_with_user": false,
   "outbound_domain_strategy": "UseIPv4",
   "quota_reset_day": 0,

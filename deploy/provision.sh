@@ -27,7 +27,7 @@ XRAY_CHOICE="${XRAY_CHOICE:-ask}"          # ask | stable | latest
 SUB_MODE="${SUB_MODE:-http}"               # http | tls | off
 SUB_PATH="${SUB_PATH:-token}"              # token | hash
 SUB_PORT="${SUB_PORT:-}"
-CERT_DIR="${CERT_DIR:-/etc/ix-sub-tls}"
+CERT_DIR="${CERT_DIR:-/etc/polarisx-sub-tls}"
 HARDENING="${HARDENING:-1}"
 YES=0
 NODE_KIND="" NODE_TAG="" NODE_PORT="" NODE_SNI="" ENTRY_HOST=""
@@ -198,7 +198,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2) 自签证书（CA + leaf 两级；只用自签 leaf 会被 Go 内核判为不合规）
 # ---------------------------------------------------------------------------
-CERT_SNI="${NODE_SNI:-ix-sub.local}"
+CERT_SNI="${NODE_SNI:-polarisx-sub.local}"
 SERVER_HOST="${ENTRY_HOST:-$(curl -fsSL --max-time 10 https://api.ipify.org 2>/dev/null || echo 127.0.0.1)}"
 ensure_cert() {
   mkdir -p "$CERT_DIR"
@@ -211,7 +211,7 @@ ensure_cert() {
 distinguished_name = dn
 prompt = no
 [dn]
-CN = ixrelay
+CN = polarisx
 [v3_ca]
 basicConstraints = critical,CA:TRUE
 keyUsage = critical,digitalSignature,keyCertSign,cRLSign
@@ -220,10 +220,10 @@ subjectKeyIdentifier = hash
 basicConstraints = critical,CA:FALSE
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
-subjectAltName = DNS:$CERT_SNI,IP:$SERVER_HOST,DNS:ix-sub.local
+subjectAltName = DNS:$CERT_SNI,IP:$SERVER_HOST,DNS:polarisx-sub.local
 IXCNF
   openssl req -x509 -newkey rsa:2048 -nodes -days 36500 -keyout "$CERT_DIR/ca.key" \
-    -out "$CERT_DIR/ca.crt" -subj "/CN=ixrelay-ca" -config "$cnf" -extensions v3_ca >/dev/null 2>&1
+    -out "$CERT_DIR/ca.crt" -subj "/CN=polarisx-ca" -config "$cnf" -extensions v3_ca >/dev/null 2>&1
   openssl req -new -newkey rsa:2048 -nodes -keyout "$CERT_DIR/private.key" \
     -out "$CERT_DIR/srv.csr" -subj "/CN=$CERT_SNI" -config "$cnf" >/dev/null 2>&1
   openssl x509 -req -in "$CERT_DIR/srv.csr" -CA "$CERT_DIR/ca.crt" -CAkey "$CERT_DIR/ca.key" \
@@ -261,7 +261,7 @@ if [ "$SUB_MODE" != "off" ]; then
   if [ "$SUB_MODE" = "tls" ]; then
     HASH="$(python3 -c 'import os;print(os.urandom(16).hex())')"
     if [ "$SUB_PATH" = "hash" ]; then
-      printf 'HASH=%s\n' "$HASH" > /root/.ix_sub_hash
+      printf 'HASH=%s\n' "$HASH" > /root/.polarisx_sub_hash
       LOC="location ~ ^/$HASH/sub/(?<subrest>.*)\$ {"
     else
       LOC="location ~ ^/sub/(?<subrest>.*)\$ {"
@@ -412,7 +412,7 @@ fi
 if [ -n "$NODE_KIND" ]; then
   step "5/6 创建节点与用户"
   command -v "$POLARISX" >/dev/null 2>&1 || die "找不到 $POLARISX（先跑 deploy/install.sh）"
-  TAG="${NODE_TAG:-ix-$NODE_KIND}"
+  TAG="${NODE_TAG:-polarisx-$NODE_KIND}"
   PORT="${NODE_PORT:-443}"
   SNI="${NODE_SNI:-auto}"
   HOST="${ENTRY_HOST:-$SERVER_HOST}"
@@ -482,7 +482,7 @@ c_ok "装机完成"
 if [ -n "$TOKEN" ]; then
   SCHEME=http; [ "$SUB_MODE" = "tls" ] && SCHEME=https
   GATE=""
-  [ "$SUB_MODE" = "tls" ] && [ "$SUB_PATH" = "hash" ] && GATE="$(sed -n 's/^HASH=//p' /root/.ix_sub_hash 2>/dev/null)/"
+  [ "$SUB_MODE" = "tls" ] && [ "$SUB_PATH" = "hash" ] && GATE="$(sed -n 's/^HASH=//p' /root/.polarisx_sub_hash 2>/dev/null)/"
   echo "  订阅地址: $SCHEME://$SERVER_HOST:$SUB_PORT/${GATE}sub/$TOKEN/clash"
   echo "  用量查询: $SCHEME://$SERVER_HOST:$SUB_PORT/${GATE}sub/$TOKEN/info"
 else

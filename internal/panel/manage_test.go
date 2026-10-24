@@ -20,7 +20,7 @@ func TestManageRoundTrip(t *testing.T) {
 	st := Defaults()
 
 	t.Run("建节点", func(t *testing.T) {
-		n := Node{Tag: "ix-reality", Proto: "vless", Net: "tcp", Security: "reality",
+		n := Node{Tag: "polarisx-reality", Proto: "vless", Net: "tcp", Security: "reality",
 			Port: 443, EntryHost: "1.2.3.4", Dest: "www.microsoft.com:443",
 			SNI: "www.microsoft.com", PrivKey: "PRIV", PubKey: "PUB", ShortID: "abcd",
 			Flow: "xtls-rprx-vision"}
@@ -31,7 +31,7 @@ func TestManageRoundTrip(t *testing.T) {
 		if err := store.CreateNode(n); err == nil {
 			t.Error("重复 tag 应该报错")
 		}
-		got, err := store.NodeByTag("ix-reality")
+		got, err := store.NodeByTag("polarisx-reality")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -140,7 +140,7 @@ func TestManageRoundTrip(t *testing.T) {
 
 	t.Run("删用户与节点", func(t *testing.T) {
 		// 删掉一个节点：另一个节点还有人用，所以应剩 1 个 inbound
-		if err := store.DeleteNode("ix-reality"); err != nil {
+		if err := store.DeleteNode("polarisx-reality"); err != nil {
 			t.Fatal(err)
 		}
 		cfg, _ := store.BuildConfig(st)

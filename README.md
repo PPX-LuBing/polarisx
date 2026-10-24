@@ -66,7 +66,7 @@ Web 面板顶部有「流量曲线」：24 根小时柱，**琥珀色只给峰�
 
 ```bash
 polarisx selftest                  # 逐节点实测
-polarisx selftest --node ix-reality
+polarisx selftest --node polarisx-reality
 polarisx selftest --show-config    # 只打印将要用的客户端配置（排障用）
 polarisx selftest --json
 ```
@@ -144,7 +144,7 @@ polarisx tunnel off             # 关隧道，订阅地址还原成开隧道之�
 
 ```bash
 polarisx sni --top 10                      # 排名（TLS1.3 + h2 + X25519、排除 Cloudflare 前置）
-polarisx sni --apply --node ix-reality     # 把最佳结果写到节点（reality 会连 dest 一起换）
+polarisx sni --apply --node polarisx-reality # 把最佳结果写到节点（reality 会连 dest 一起换）
 polarisx node add --tag n1 --proto vless --net tcp --security reality \
     --port 443 --entry-host 1.2.3.4 --sni auto   # 建节点时自动挑
 ```

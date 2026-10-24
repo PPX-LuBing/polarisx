@@ -739,7 +739,7 @@ func (m Model) startAdd() (tea.Model, tea.Cmd) {
 	switch m.view {
 	case viewNodes:
 		m.form = newForm("新增节点", []field{
-			{label: "tag", hint: "唯一标识，如 ix-reality"},
+			{label: "tag", hint: "唯一标识，如 polarisx-reality"},
 			{label: "协议", value: "vless", pick: []string{"vless", "vmess", "trojan", "shadowsocks", "hysteria2"}},
 			{label: "传输", value: "tcp", pick: []string{"tcp", "ws", "httpupgrade", "xhttp", "grpc", "hysteria"}},
 			{label: "安全", value: "reality", pick: []string{"reality", "tls", "none"}},

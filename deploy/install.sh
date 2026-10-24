@@ -49,7 +49,7 @@ if [ "$ACTION" = "uninstall" ]; then
   else
     echo "  -- 保留数据目录 $HOME_DIR（panel.db / settings.json）"
   fi
-  echo "  注意：xray 本体、/etc/nginx-sub、/etc/ix-sub-tls、iptables 规则都**没动**"
+  echo "  注意：xray 本体、/etc/nginx-sub、/etc/polarisx-sub-tls、iptables 规则都**没动**"
   echo "        （它们不属于面板；要一起清就手工删，或看 deploy/provision.sh 的反向步骤）"
   echo "==> 卸载完成"
   exit 0
@@ -57,7 +57,8 @@ fi
 
 echo "==> 安装二进制到 $BIN_DST"
 install -m 0755 "$BIN_SRC" "$BIN_DST"
-mkdir -p "$HOME_DIR"
+install -d -m 0700 "$HOME_DIR"
+chmod 0700 "$HOME_DIR"
 
 echo "==> 安装 systemd 单元"
 for u in "${UNITS[@]}"; do
