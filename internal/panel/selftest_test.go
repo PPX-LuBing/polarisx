@@ -248,3 +248,54 @@ func TestTunnelOnFailureRollsBackSettings(t *testing.T) {
 		t.Fatalf("开启失败后应保留原订阅前缀: got=%q want=%q", back.SubBase, st.SubBase)
 	}
 }
+
+// 写 systemd 单元失败时也必须回滚：单元可能已经启用了一半。
+// 这条路径原先漏了回滚——只在 Linux（有 systemd）上才会走到，macOS 本地跑不出来，
+// 是 CI 的 Linux 环境把它暴露出来的。所以这里把安装步骤注入成必然失败。
+func TestTunnelOnRollsBackWhenUnitInstallFails(t *testing.T) {
+	store, st := selftestStore(t)
+	cf := filepath.Join(t.TempDir(), "cloudflared")
+	if err := os.WriteFile(cf, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st.CloudflaredBin = cf
+	st.SubBase = "http://127.0.0.1:61887"
+	st.SubTunnel = false
+	st.SubTunnelPrevBase = ""
+
+	orig := installTunnelUnits
+	installTunnelUnits = func(Settings, func(string)) error {
+		return os.ErrPermission
+	}
+	defer func() { installTunnelUnits = orig }()
+
+	_, err := TunnelOn(context.Background(), store, st, false, 1, nil)
+	if err == nil {
+		t.Fatal("写单元失败时应返回错误")
+	}
+	back, readErr := LoadSettings()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if back.SubTunnel || back.SubTunnelHost != "" || back.SubTunnelPrevBase != "" {
+		t.Fatalf("写单元失败后不该留下半开启状态: %+v", back)
+	}
+	if back.SubBase != st.SubBase {
+		t.Fatalf("订阅前缀应保留原值: got=%q want=%q", back.SubBase, st.SubBase)
+	}
+}
+
+// 反过来钉住：本来就没开隧道时，失败回滚不该去动 systemd（免得误停别的服务）。
+func TestRollbackKeepsExistingTunnelRunning(t *testing.T) {
+	_, st := selftestStore(t)
+	st.SubTunnel = true
+	st.SubBase = "https://keep.trycloudflare.com"
+	rollbackTunnelSettings(st)
+	back, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !back.SubTunnel || back.SubBase != st.SubBase {
+		t.Errorf("已开启的隧道不该被回滚停掉: %+v", back)
+	}
+}

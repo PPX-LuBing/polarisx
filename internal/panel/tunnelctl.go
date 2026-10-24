@@ -107,6 +107,10 @@ func InstallTunnelUnits(st Settings, say func(string)) error {
 	return nil
 }
 
+// installTunnelUnits 可注入：测试里要能在任何平台（包括没有 systemd 的 macOS）
+// 确定性地模拟"写单元失败"，否则这条路径只在 Linux CI 上才会走到。
+var installTunnelUnits = InstallTunnelUnits
+
 // TunnelOn 开启隧道：必要时下载 cloudflared，写单元，等域名，再把订阅地址切过去。
 // download=false 且找不到 cloudflared 时返回可执行的提示。
 func TunnelOn(ctx context.Context, s *Store, st Settings, download bool, waitSec int,
@@ -135,7 +139,9 @@ func TunnelOn(ctx context.Context, s *Store, st Settings, download bool, waitSec
 		st.SubTunnelPrevBase = st.SubBase
 	}
 	st.SubTunnel = true
-	if err := InstallTunnelUnits(st, say); err != nil {
+	if err := installTunnelUnits(st, say); err != nil {
+		// 单元可能已经写了一半/启用了一半，失败要清掉，不能留下半开启状态
+		rollbackTunnelSettings(original)
 		return st, err
 	}
 	host := WaitQuickTunnel(st, waitSec, say)
