@@ -486,45 +486,23 @@ func cmdSet(args []string) error {
 	if err != nil {
 		return err
 	}
-	cur, err := panel.MarshalIndent(st)
-	if err != nil {
-		return err
-	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(cur), &m); err != nil {
-		return err
-	}
+	// 先全部校验并写进内存里的副本：任何一项失败就整体不落盘，
+	// 不会出现"前几项写进去了、后面报错"的半成品。
 	for _, kv := range args {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok {
 			return fmt.Errorf("参数格式: key=value")
 		}
-		if _, exists := m[k]; !exists {
-			return fmt.Errorf("未知设置项 %s", k)
+		if err := panel.SetSetting(&st, k, v); err != nil {
+			return err
 		}
-		m[k] = v // 类型由 Settings 的容错解析统一处理
 	}
-	b, err := json.Marshal(m)
-	if err != nil {
+	if err := panel.SaveSettings(st); err != nil {
 		return err
 	}
-	var next panel.Settings
-	if err := json.Unmarshal(b, &next); err != nil {
-		return err
-	}
-	if err := panel.SaveSettings(next); err != nil {
-		return err
-	}
-	out, _ := panel.MarshalIndent(next)
-	var keys []string
 	for _, kv := range args {
 		k, _, _ := strings.Cut(kv, "=")
-		keys = append(keys, k)
-	}
-	var show map[string]any
-	_ = json.Unmarshal([]byte(out), &show)
-	for _, k := range keys {
-		fmt.Printf("%-26s = %v\n", k, show[k])
+		fmt.Printf("  %-28s = %s\n", k, panel.SettingValue(st, k))
 	}
 	return nil
 }

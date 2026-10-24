@@ -115,3 +115,41 @@ func TestPlanSettingsMigrationKeep(t *testing.T) {
 		t.Errorf("没 keep 的键仍应迁移，实际 %q", out.ServerCC)
 	}
 }
+
+// `polarisx set` 的底层：按字段类型写值。之前 int/bool 字段一个都改不了
+// （值被当字符串塞进去，靠已删除的容错解析兜底）。
+func TestSetSettingByFieldType(t *testing.T) {
+	st := Defaults()
+	if err := SetSetting(&st, "quota_reset_day", "1"); err != nil {
+		t.Fatalf("int 字段应能写: %v", err)
+	}
+	if st.QuotaResetDay != 1 {
+		t.Errorf("quota_reset_day 应为 1，实际 %d", st.QuotaResetDay)
+	}
+	if err := SetSetting(&st, "fail2ban_kick", "false"); err != nil {
+		t.Fatalf("bool 字段应能写: %v", err)
+	}
+	if st.Fail2banKick {
+		t.Error("fail2ban_kick 应为 false")
+	}
+	if err := SetSetting(&st, "server_cc", "HK"); err != nil {
+		t.Fatalf("string 字段应能写: %v", err)
+	}
+	if st.ServerCC != "HK" {
+		t.Errorf("server_cc 应为 HK，实际 %q", st.ServerCC)
+	}
+	// 未知键与非法值都要报错，且不改动结构体
+	before := st
+	if err := SetSetting(&st, "nope_not_a_key", "1"); err == nil {
+		t.Error("未知键应报错")
+	}
+	if err := SetSetting(&st, "quota_reset_day", "不是数字"); err == nil {
+		t.Error("非法 int 应报错")
+	}
+	if st != before {
+		t.Error("报错时不该改动任何字段")
+	}
+	if got := SettingValue(st, "quota_reset_day"); got != "1" {
+		t.Errorf("SettingValue 应回显 1，实际 %q", got)
+	}
+}

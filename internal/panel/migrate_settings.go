@@ -231,3 +231,39 @@ func MigrateSettingsFile(path string, dryRun bool, keep []string) (SettingsMigra
 	}
 	return plan, out, SaveSettings(out)
 }
+
+// SetSetting 把一个字符串值按**字段类型**写进 Settings：int/bool/float 都能写。
+// CLI 的 `polarisx set` 用它——之前它把值当字符串塞进 map，靠"容错解析"兜底，
+// 而容错解析在独立化重构里被删掉了，于是 `set quota_reset_day=1` 直接报
+// cannot unmarshal string into ... type int，int/bool 字段一个都改不了。
+func SetSetting(st *Settings, key, val string) error {
+	kind, ok := settingsKinds[key]
+	if !ok {
+		return fmt.Errorf("未知设置项 %s", key)
+	}
+	nv, err := coerceSetting(key, val, kind)
+	if err != nil {
+		return err
+	}
+	return assignSetting(st, key, nv)
+}
+
+// SettingValue 读一个设置项的字符串形式（给 `set` 回显用）。
+func SettingValue(st Settings, key string) string {
+	b, err := json.Marshal(st)
+	if err != nil {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	if s, isStr := v.(string); isStr {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}
