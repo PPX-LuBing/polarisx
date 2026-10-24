@@ -49,6 +49,55 @@ func configSameAsDisk(st Settings, desired map[string]any) (bool, error) {
 	return reflect.DeepEqual(disk, want), nil
 }
 
+// configStructureSame 比较磁盘上的配置与目标配置，**忽略 inbounds 里可热更新的 clients**。
+// 只有"用户增删"能靠 xray API 热更新；inbound/outbound/routing 的结构变化必须重启
+// —— xray 的 API 改不了 routing 规则，改了分流不重启就一直是旧路由（真机上踩到过：
+// 配好 AI 走中转、apply 报"已生效"，实际四个域名全走本机，重启后才对）。
+func configStructureSame(st Settings, desired map[string]any) bool {
+	b, err := os.ReadFile(st.XrayConfig)
+	if err != nil {
+		return false
+	}
+	var disk map[string]any
+	if json.Unmarshal(b, &disk) != nil {
+		return false
+	}
+	// 先做 JSON 往返（= 深拷贝）再屏蔽 clients：maskClients 会改 map，
+	// 直接改调用方传进来的 desired，会让它随后写盘时把 clients 写成 null——
+	// 也就是"用户被整个抹掉"，节点立刻认证失败（这个 bug 我犯过，靠自检抓到）。
+	a, err1 := toAny(disk)
+	c, err2 := toAny(desired)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	am, ok1 := a.(map[string]any)
+	cm, ok2 := c.(map[string]any)
+	if !ok1 || !ok2 {
+		return false
+	}
+	maskClients(am)
+	maskClients(cm)
+	return reflect.DeepEqual(am, cm)
+}
+
+// maskClients 把 inbounds[].settings.clients 清空（这部分是 API 能热更新的）。
+func maskClients(cfg map[string]any) {
+	inb, _ := cfg["inbounds"].([]any)
+	for _, x := range inb {
+		m, ok := x.(map[string]any)
+		if !ok {
+			continue
+		}
+		st, ok := m["settings"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, has := st["clients"]; has {
+			st["clients"] = nil
+		}
+	}
+}
+
 func toAny(v any) (any, error) {
 	b, err := json.Marshal(v)
 	if err != nil {

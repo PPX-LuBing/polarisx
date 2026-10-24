@@ -383,14 +383,22 @@ func (s *Store) SyncXrayUsers(st Settings) error {
 
 // Apply 写配置（按需校验）并让运行中的 xray 生效。
 func (s *Store) Apply(st Settings, restart bool) error {
-	if restart {
-		return s.SyncXrayUsers(st)
-	}
 	cfg, err := s.BuildConfig(st)
 	if err != nil {
 		return err
 	}
-	return WriteConfig(st, cfg, "", st.VerifyConfig)
+	if !restart {
+		return WriteConfig(st, cfg, "", st.VerifyConfig)
+	}
+	// 结构（inbound/outbound/routing）变了就必须重启：xray 的 API 只能增删改用户，
+	// 改不了 routing 规则。只增删用户时仍走 API 热更新，不打扰在线连接。
+	if !configStructureSame(st, cfg) {
+		if err := WriteConfig(st, cfg, "", st.VerifyConfig); err != nil {
+			return err
+		}
+		return RestartXray(st, false)
+	}
+	return s.SyncXrayUsers(st)
 }
 
 func nowStamp() string { return timeNow().Format("2006-01-02 15:04:05") }
