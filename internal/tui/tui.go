@@ -2,7 +2,9 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -74,6 +76,7 @@ type Model struct {
 	apiKnown bool
 	// Probe 可注入（测试里别真去起 xray 子进程）
 	Probe     func(panel.Settings, time.Duration) bool
+	SNIProbe  panel.SniProbeFunc
 	flash     string
 	actionOut []string
 	quit      bool
@@ -169,8 +172,62 @@ func (m *Model) refreshStatus() {
 	m.apiKnown = true
 }
 
+type sniPickMsg struct {
+	tag  string
+	best panel.SniResult
+	err  error
+}
+
+func (m Model) repickSNI() (tea.Model, tea.Cmd) {
+	nodes, _ := m.Store.Nodes(false)
+	if m.cursor >= len(nodes) {
+		return m, nil
+	}
+	n := nodes[m.cursor]
+	if n.Security != "reality" {
+		m.flash = "⚠ 只有 REALITY 节点可以重新挑 SNI"
+		return m, nil
+	}
+	m.flash = "正在实测 SNI 候选，请稍候…"
+	probe := m.SNIProbe
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if probe == nil {
+			cf := panel.LoadCFRanges(ctx, 20*time.Second)
+			probe = func(ctx context.Context, host string) panel.SniResult {
+				return panel.ProbeTLS(ctx, host, 6*time.Second, cf)
+			}
+		}
+		best, _, err := panel.BestSNI(ctx, panel.SniCandidates, probe, 8)
+		return sniPickMsg{tag: n.Tag, best: best, err: err}
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case sniPickMsg:
+		if msg.err != nil {
+			m.flash = "✗ SNI 实测失败: " + msg.err.Error()
+			return m, nil
+		}
+		n, err := m.Store.NodeByTag(msg.tag)
+		if err != nil {
+			m.flash = "✗ 更新 SNI 失败: " + err.Error()
+			return m, nil
+		}
+		destPort := 443
+		if _, port, splitErr := net.SplitHostPort(n.Dest); splitErr == nil {
+			if parsed, parseErr := strconv.Atoi(port); parseErr == nil && parsed > 0 && parsed <= 65535 {
+				destPort = parsed
+			}
+		}
+		if err := m.Store.UpdateNode(msg.tag, panel.SniNodeUpdates(n, msg.best, destPort)); err != nil {
+			m.flash = "✗ 更新 SNI 失败: " + err.Error()
+			return m, nil
+		}
+		m.flash = fmt.Sprintf("✓ 已切换 servername 为 %s；客户端需要重新拉取订阅后才会生效", msg.best.Host)
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
@@ -296,6 +353,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "w":
 			if m.view == viewEvents {
 				return m.startWebhookForm()
+			}
+			return m, nil
+		case "s":
+			if m.view == viewNodes {
+				return m.repickSNI()
 			}
 			return m, nil
 		case "a":
@@ -616,7 +678,7 @@ func (m Model) nodesView() string {
 	head := fmt.Sprintf("节点 %d 个", len(nodes))
 	return pageStyle.Render(head) + "\n" +
 		m.renderTable(nodeColumns(m.width), rows) +
-		"\n" + dimStyle.Render("  ↑↓/jk 选择 · a 新增 · e 编辑 · d 删除 · Esc 返回")
+		"\n" + dimStyle.Render("  ↑↓/jk 选择 · a 新增 · e 编辑 · s 重选 SNI · d 删除 · Esc 返回")
 }
 
 func (m Model) usersView() string {
@@ -663,7 +725,7 @@ func (m Model) footer() string {
 	hint := m.helpModel().View(m.keys)
 	switch m.view {
 	case viewNodes:
-		hint += "  ·  a 新增  ·  e 编辑  ·  d 删除  ·  r 刷新"
+		hint += "  ·  a 新增  ·  e 编辑  ·  s 重选 SNI  ·  d 删除  ·  r 刷新"
 	case viewUsers:
 		hint += "  ·  Enter 详情  ·  a 新增  ·  e 编辑  ·  d 删除  ·  r 刷新"
 	case viewUserDetail:

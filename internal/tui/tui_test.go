@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,13 +13,13 @@ import (
 	"github.com/PPX-LuBing/polarisx/internal/panel"
 )
 
-// newTestModel 用 parity 夹具建一个模型（探活用桩，别真起 xray）。
+// newTestModel 用 golden 夹具建一个模型（探活用桩，别真起 xray）。
 func newTestModel(t *testing.T) Model {
 	t.Helper()
 	root := filepath.Join("..", "..", "testdata")
 	src, err := os.ReadFile(filepath.Join(root, "fixture", "panel.db"))
 	if err != nil {
-		t.Skipf("没有夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有夹具（testdata fixtures are frozen）: %v", err)
 	}
 	// TUI 会读写 settings.json（改告警地址等），测试必须指向临时目录。
 	dir := t.TempDir()
@@ -118,6 +119,54 @@ func TestNavigation(t *testing.T) {
 	// 坏节点要有告警标记
 	if !strings.Contains(v, "⚠") {
 		t.Errorf("坏节点应显示告警\n%s", v)
+	}
+}
+
+func TestTUIRepickSNI(t *testing.T) {
+	m := newTestModel(t)
+	m = key(m, "down")
+	m = key(m, "enter")
+	nodes, err := m.Store.Nodes(false)
+	if err != nil || len(nodes) == 0 {
+		t.Fatal("夹具应包含节点")
+	}
+	idx := -1
+	for i, n := range nodes {
+		if n.Security == "reality" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("夹具应包含 REALITY 节点")
+	}
+	for m.cursor < idx {
+		m = key(m, "down")
+	}
+	original, _ := m.Store.NodeByTag(nodes[idx].Tag)
+	m.SNIProbe = func(_ context.Context, host string) panel.SniResult {
+		return panel.SniResult{Host: "candidate.example", TLS13: true, H2: true, X25519: true, Totalms: float64(len(host))}
+	}
+	model, cmd := m.repickSNI()
+	m = model.(Model)
+	if cmd == nil {
+		t.Fatal("REALITY 节点应启动 SNI 探测命令")
+	}
+	msg := cmd()
+	model, _ = m.Update(msg)
+	m = model.(Model)
+	got, err := m.Store.NodeByTag(original.Tag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SNI == original.SNI || got.SNI != "candidate.example" {
+		t.Fatalf("SNI 未切换: old=%q new=%q", original.SNI, got.SNI)
+	}
+	if !strings.Contains(got.Dest, "candidate.example:") {
+		t.Fatalf("dest 未随 SNI 切换: %q", got.Dest)
+	}
+	if !strings.Contains(m.flash, "servername") || !strings.Contains(m.flash, "重新拉取订阅") {
+		t.Fatalf("缺少重新拉取订阅提示: %q", m.flash)
 	}
 }
 

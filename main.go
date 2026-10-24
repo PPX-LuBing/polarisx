@@ -564,6 +564,7 @@ func cmdSni(args []string) error {
 	conc := fs.Int("concurrency", 8, "并发数")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 	apply := fs.Bool("apply", false, "把最佳结果写到节点")
+	yes := fs.Bool("yes", false, "跳过切换 SNI 的确认")
 	nodeTag := fs.String("node", "", "--apply 时指定节点 tag")
 	destPort := fs.Int("dest-port", 443, "--apply 时 dest 用的端口")
 	cands := fs.String("candidates", "", "自定义候选（逗号或空格分隔）")
@@ -623,6 +624,19 @@ func cmdSni(args []string) error {
 	}
 	if *nodeTag == "" {
 		return fmt.Errorf("--apply 需要 --node <tag>")
+	}
+	if !*yes {
+		tty, openErr := os.Open("/dev/tty")
+		if openErr != nil {
+			return fmt.Errorf("--apply 需要交互确认（无终端时加 --yes）")
+		}
+		defer tty.Close()
+		fmt.Fprintf(tty, "确认把节点 %s 的 servername 切换为 %s？客户端需要重新拉取订阅。 (y/N) ", *nodeTag, best.Host)
+		var answer string
+		if _, err := fmt.Fscanln(tty, &answer); err != nil || (answer != "y" && answer != "Y") {
+			fmt.Fprintln(tty, "已取消")
+			return nil
+		}
 	}
 	st, err := panel.LoadSettings()
 	if err != nil {
