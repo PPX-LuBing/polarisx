@@ -125,21 +125,16 @@ func RestartXray(st Settings, quiet bool) error {
 	if cmdline == "" {
 		cmdline = "systemctl restart xray"
 	}
-	// restart_cmd is an operator-controlled setting, but it is still a shell
-	// boundary. Preserve custom executables while rejecting shell syntax; this
-	// keeps existing service wrappers working without allowing `sh -c` injection.
-	fields := strings.Fields(cmdline)
-	if len(fields) == 0 || strings.HasPrefix(fields[0], "-") {
-		return fmt.Errorf("restart_cmd 不能为空，且命令不能以 - 开头")
-	}
-	for _, field := range fields {
-		if strings.ContainsAny(field, ";&|<>$`(){}!\\\"'") {
-			return fmt.Errorf("restart_cmd 不允许 shell 运算符；请填写可执行文件及参数")
-		}
-	}
+	// restart_cmd 走 shell 执行，与 Python 版一致（subprocess.run(cmd, shell=True)）：
+	// 运维会用 `systemctl restart xray && ...` 这类串联命令，也会用带参数的包装脚本，
+	// 拆成 exec(字段[0], 字段[1:]...) 会把它们全部拒掉。
+	//
+	// 信任边界说明：这个设置只存在 settings.json 里，而该文件是 root:root 0644，
+	// 只有 root 能改——能改它的人本来就能执行任意命令，所以这里不需要再做"防注入"。
+	// 真要跑不可信的命令，应该先解决"谁能写 settings.json"，而不是在这一层加黑名单。
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, fields[0], fields[1:]...)
+	cmd := exec.CommandContext(ctx, "sh", "-c", cmdline)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {

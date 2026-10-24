@@ -9,10 +9,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// form 是一个极简的逐字段输入表单。
+// form 是逐字段输入表单：文本字段用 bubbles/textinput，枚举字段自己处理左右键。
 //
-// 为什么不引 bubbles/textinput：这里只需要"几个单行字段 + 上下切换 + 回车提交"，
-// 一个 80 行的结构体就够了；引组件库还得处理它的 Focus/Blink 生命周期。
+// 为什么用组件库而不是手写：手写要自己实现光标移动、删除、粘贴、长文本滚动、
+// 以及 Focus/Blink 生命周期——这些都是 textinput 已经做好的事，自己写只会更差。
+// 项目方向就是"用现成的库替代手写"，别为了少一个依赖再退回去。
+// 只有一处例外：枚举字段（协议/传输/安全）要的是"左右键循环选值"，textinput 没有这个概念，
+// 所以那一层仍然自己写，改完再用 SetValue 同步给 textinput。
 type form struct {
 	title  string
 	fields []field
