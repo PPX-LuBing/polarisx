@@ -36,6 +36,8 @@ const (
 	viewUsers
 	viewDoctor
 	viewApply
+	viewUserDetail
+	viewEvents
 )
 
 var menuItems = []string{
@@ -43,6 +45,7 @@ var menuItems = []string{
 	"节点管理",
 	"用户管理",
 	"生成配置并重启 xray",
+	"事件与告警",
 	"退出",
 }
 
@@ -66,6 +69,11 @@ type Model struct {
 	form    *form
 	confirm string
 	onYes   func() error
+	// 用户详情页：看订阅地址与二维码
+	detailUser string
+	qrFormat   string
+	qrArt      string
+	qrShown    bool
 }
 
 // New 构造 TUI 模型。
@@ -142,6 +150,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.apiKnown = false
 			m.flash = ""
+			m.qrArt, m.qrShown = "", false
 			m.refreshStatus()
 			return m, nil
 		case "up", "k":
@@ -154,6 +163,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 			return m, nil
+		case "c":
+			if m.view == viewUserDetail {
+				switch m.qrFormat {
+				case "clash":
+					m.qrFormat = "singbox"
+				case "singbox":
+					m.qrFormat = "base64"
+				default:
+					m.qrFormat = "clash"
+				}
+				m.qrArt = ""
+				m.qrShown = false
+				return m, nil
+			}
+			return m, nil
+		case "t":
+			if m.view == viewEvents {
+				return m.sendTestAlert()
+			}
+			return m, nil
+		case "w":
+			if m.view == viewEvents {
+				return m.startWebhookForm()
+			}
+			return m, nil
 		case "a":
 			return m.startAdd()
 		case "d":
@@ -163,6 +197,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.view == viewMenu {
 				return m.selectMenu()
+			}
+			if m.view == viewUsers {
+				users, _ := m.Store.Users()
+				if m.cursor < len(users) {
+					m.view = viewUserDetail
+					m.detailUser = users[m.cursor].Name
+					m.qrFormat = "clash"
+					m.qrArt = ""
+				}
 			}
 			return m, nil
 		}
@@ -198,6 +241,10 @@ func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 		m.view = viewApply
 		m.actionOut = m.applyLines()
 	case 4:
+		m.view = viewEvents
+		m.cursor = 0
+		m.actionOut = nil
+	case 5:
 		m.quit = true
 		return m, tea.Quit
 	}
@@ -223,6 +270,10 @@ func (m Model) View() string {
 		b.WriteString(m.nodesView())
 	case viewUsers:
 		b.WriteString(m.usersView())
+	case viewUserDetail:
+		b.WriteString(m.userDetailView())
+	case viewEvents:
+		b.WriteString(m.eventsView())
 	case viewDoctor, viewApply:
 		b.WriteString(m.textView())
 	}
@@ -398,7 +449,17 @@ func (m Model) textView() string {
 
 func (m Model) footer() string {
 	hint := "↑↓ 选择 · Enter 确认 · q 退出 · r 刷新"
-	if m.view != viewMenu {
+	switch m.view {
+	case viewNodes:
+		hint = "a 新增 · e 启停/编辑 · d 删除 · r 刷新 · Esc 返回"
+	case viewUsers:
+		hint = "Enter 详情与二维码 · a 新增 · e 编辑 · d 删除 · Esc 返回"
+	case viewUserDetail:
+		hint = "c 切换二维码格式 · r 刷新 · Esc 返回"
+	case viewEvents:
+		hint = "w 设置 webhook · t 发测试 · r 刷新 · Esc 返回"
+	case viewMenu:
+	default:
 		hint = "q/Esc 返回 · r 刷新"
 	}
 	return dimStyle.Render(hint)
@@ -628,5 +689,154 @@ func (m Model) startDelete() (tea.Model, tea.Cmd) {
 	default:
 		m.flash = "这个页面没有删除操作"
 	}
+	return m, nil
+}
+
+// currentSettings 取最新设置：值接收者下改 m.St 会丢，而且设置随时可能被 CLI 改过。
+func (m Model) currentSettings() panel.Settings {
+	if st, err := panel.LoadSettings(); err == nil {
+		return st
+	}
+	return m.St
+}
+
+// ---------------------------------------------------------------------------
+// 用户详情页：看订阅地址与二维码（手机直接扫，省得复制粘贴）
+// ---------------------------------------------------------------------------
+
+func (m Model) userDetailView() string {
+	u, err := m.Store.UserByName(m.detailUser)
+	if err != nil {
+		return errStyle.Render("  用户不存在: "+m.detailUser) + "\n"
+	}
+	quota := panel.QuotaBytes(u, m.St)
+	used := panel.UsedBytes(u)
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("用户 "+u.Name) + "\n\n")
+	quotaText := "不限"
+	if quota > 0 {
+		quotaText = panel.HumanBytes(quota)
+	}
+	fmt.Fprintf(&b, "  %-10s %s / %s\n", "用量", panel.HumanBytes(used), quotaText)
+	expire := u.ExpireAt
+	if expire == "" {
+		expire = "不限"
+	}
+	fmt.Fprintf(&b, "  %-10s %s\n", "到期", expire)
+	state := okStyle.Render("启用")
+	if u.Enable != 1 {
+		state = warnStyle.Render("停用（" + u.DisabledReason + "）")
+	}
+	fmt.Fprintf(&b, "  %-10s %s\n\n", "状态", state)
+
+	// 订阅地址：c 键在 clash / sing-box / base64 之间切
+	suffix, label := "/clash", "Clash/mihomo YAML"
+	switch m.qrFormat {
+	case "singbox":
+		suffix, label = "/singbox", "sing-box JSON"
+	case "base64":
+		suffix, label = "", "base64（老客户端）"
+	}
+	url := panel.SubBaseFor(m.St) + "/sub/" + u.Token + suffix
+	fmt.Fprintf(&b, "  %s（按 c 切换格式）\n", dimStyle.Render("订阅地址 · "+label))
+	b.WriteString("  " + url + "\n\n")
+
+	// 二维码按需生成（不每帧重算）
+	if !m.qrShown {
+		art, err := panel.RenderQR(url)
+		if err != nil {
+			m.qrArt = errStyle.Render("  二维码生成失败: " + err.Error())
+		} else {
+			m.qrArt = art
+		}
+		m.qrShown = true
+	}
+	b.WriteString(m.qrArt)
+	b.WriteString("\n" + dimStyle.Render("  c 切换格式 · r 刷新 · Esc 返回"))
+	return b.String()
+}
+
+// ---------------------------------------------------------------------------
+// 事件与告警页
+// ---------------------------------------------------------------------------
+
+func (m Model) eventsView() string {
+	st := m.currentSettings()
+	var b strings.Builder
+	hook := strings.TrimSpace(st.AlertWebhook)
+	b.WriteString(headerStyle.Render("事件与告警") + "\n\n")
+	if hook == "" {
+		b.WriteString("  " + warnStyle.Render("告警未配置") +
+			"　按 w 填一个 webhook（用量过 80% 或被停用时通知）\n\n")
+	} else {
+		fmt.Fprintf(&b, "  %s %s\n\n", okStyle.Render("告警已配置"), hook)
+	}
+	evs, err := m.Store.Events(20)
+	if err != nil {
+		return b.String() + errStyle.Render("  读事件失败: "+err.Error()) + "\n"
+	}
+	if len(evs) == 0 {
+		b.WriteString(dimStyle.Render("  还没有事件") + "\n")
+	} else {
+		b.WriteString("  " + dimStyle.Render("最近 20 条事件（新的在上）") + "\n")
+		for _, e := range evs {
+			mark := "·"
+			switch e.Level {
+			case "warn":
+				mark = warnStyle.Render("!")
+			case "error":
+				mark = errStyle.Render("×")
+			}
+			who := ""
+			if e.UserName != "" {
+				who = " " + e.UserName
+			}
+			fmt.Fprintf(&b, "  %s %s%s %s\n", mark, dimStyle.Render(e.TS), who, e.Message)
+		}
+	}
+	b.WriteString("\n" + dimStyle.Render("  w 设置 webhook · t 发测试消息 · r 刷新 · Esc 返回"))
+	return b.String()
+}
+
+func (m Model) startWebhookForm() (tea.Model, tea.Cmd) {
+	m.form = newForm("设置告警 webhook", []field{
+		{label: "webhook", value: m.currentSettings().AlertWebhook,
+			hint: "留空=关闭告警；支持 Slack/Discord/飞书那类收 JSON 的地址"},
+	}, "消息体带 text 字段，也带结构化 events；采集时用量过 80% 或被停用会发",
+		func(v []string) (bool, string, error) {
+			url := strings.TrimSpace(v[0])
+			if url != "" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+				return true, "", fmt.Errorf("要以 http:// 或 https:// 开头（否则会静默失败）")
+			}
+			st, err := panel.LoadSettings()
+			if err != nil {
+				return true, "", err
+			}
+			st.AlertWebhook = url
+			if err := panel.SaveSettings(st); err != nil {
+				return true, "", err
+			}
+			if url == "" {
+				return false, "✓ 已关闭用量告警", nil
+			}
+			return false, "✓ 已设置告警地址（按 t 可发测试消息）", nil
+		})
+	return m, nil
+}
+
+func (m Model) sendTestAlert() (tea.Model, tea.Cmd) {
+	st := m.currentSettings()
+	if strings.TrimSpace(st.AlertWebhook) == "" {
+		m.flash = "还没配 webhook，先按 w"
+		return m, nil
+	}
+	evs := []panel.AlertEvent{{Kind: "warn", User: "（测试）",
+		Message: "来自 PolarisX TUI 的测试告警",
+		At:      time.Now().Format("2006-01-02 15:04:05")}}
+	if err := panel.SendAlert(st, evs, 10*time.Second); err != nil {
+		m.flash = "✗ 发送失败: " + err.Error()
+		return m, nil
+	}
+	m.flash = "✓ 测试消息已发出"
 	return m, nil
 }

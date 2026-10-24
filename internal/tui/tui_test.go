@@ -20,7 +20,11 @@ func newTestModel(t *testing.T) Model {
 	if err != nil {
 		t.Skipf("没有夹具（先跑 python3 tools/mkfixture.py）: %v", err)
 	}
-	db := filepath.Join(t.TempDir(), "panel.db")
+	// TUI 会读写 settings.json（改告警地址等），测试必须指向临时目录，
+	// 否则会去动真实的 /usr/local/ixpanel
+	dir := t.TempDir()
+	t.Setenv("POLARISX_HOME", dir)
+	db := filepath.Join(dir, "panel.db")
 	if err := os.WriteFile(db, src, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +106,7 @@ func TestNavigation(t *testing.T) {
 
 func TestQuit(t *testing.T) {
 	m := newTestModel(t)
-	for i := 0; i < 4; i++ { // 移到「退出」
+	for i := 0; i < len(menuItems)-1; i++ { // 移到「退出」（按菜单项数走，加项也不会错位）
 		m = key(m, "down")
 	}
 	m = key(m, "enter")
@@ -342,4 +346,102 @@ func mustNodes(t *testing.T, m Model) []panel.Node {
 		t.Fatal(err)
 	}
 	return nodes
+}
+
+// 用户详情页：这是 TUI 里最实用的一个——直接在终端出二维码，手机扫。
+func TestTUIUserDetailAndQR(t *testing.T) {
+	m := newTestModel(t)
+	m = key(m, "down")
+	m = key(m, "down")
+	m = key(m, "enter") // 用户管理
+	m = key(m, "enter") // 第一个用户的详情
+	if m.view != viewUserDetail {
+		t.Fatalf("回车应进入用户详情，实际 %v", m.view)
+	}
+	v := m.View()
+	for _, want := range []string{"订阅地址", "/sub/", "/clash", "Clash/mihomo YAML", "█", "c 切换格式"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("详情页缺少 %q", want)
+		}
+	}
+	// 切格式：clash → singbox → base64
+	m = key(m, "c")
+	if m.qrFormat != "singbox" || !strings.Contains(m.View(), "/singbox") {
+		t.Errorf("c 应切到 singbox，实际 %s", m.qrFormat)
+	}
+	m = key(m, "c")
+	if m.qrFormat != "base64" || strings.Contains(m.View(), "/singbox") {
+		t.Errorf("再按 c 应切到 base64，实际 %s", m.qrFormat)
+	}
+	m = key(m, "c")
+	if m.qrFormat != "clash" {
+		t.Errorf("应循环回 clash，实际 %s", m.qrFormat)
+	}
+	// 二维码内容必须真的是这个订阅地址（不是画着玩的方块）
+	u, err := m.Store.UserByName(m.detailUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := panel.SubBaseFor(m.St) + "/sub/" + u.Token + "/clash"
+	art, err := panel.RenderQR(wantURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.View(), strings.Split(art, "\n")[4]) {
+		t.Error("详情页里的二维码与订阅地址对不上")
+	}
+}
+
+// 事件与告警页：能看事件、能配 webhook（含格式校验）、能发测试。
+func TestTUIEventsAndAlert(t *testing.T) {
+	m := newTestModel(t)
+	m = key(m, "down")
+	m = key(m, "down")
+	m = key(m, "down")
+	m = key(m, "down")
+	m = key(m, "enter") // 事件与告警
+	if m.view != viewEvents {
+		t.Fatalf("应进入事件页，实际 %v", m.view)
+	}
+	if !strings.Contains(m.View(), "告警未配置") {
+		t.Errorf("未配置时应提示\n%s", m.View())
+	}
+	// 没配就发测试 → 应提示先配
+	m = key(m, "t")
+	if !strings.Contains(m.flash, "先按 w") {
+		t.Errorf("未配置时发测试应提示，实际 %q", m.flash)
+	}
+	// 填一个不合法地址 → 留在表单并报错
+	m = key(m, "w")
+	if m.form == nil {
+		t.Fatal("w 应打开 webhook 表单")
+	}
+	m = typeText(m, "hooks.example.com/x")
+	m = key(m, "enter")
+	if m.form == nil || !strings.Contains(m.View(), "http://") {
+		t.Errorf("非法地址应被拦下并说明原因\n%s", m.View())
+	}
+	// 改成合法地址 → 保存
+	for i := 0; i < 30; i++ {
+		m = key(m, "backspace")
+	}
+	m = typeText(m, "http://127.0.0.1:9/hook")
+	m = key(m, "enter")
+	if m.form != nil {
+		t.Fatalf("合法地址应保存: %v", m.form.err)
+	}
+	if !strings.Contains(m.flash, "已设置") {
+		t.Errorf("保存后应有提示，实际 %q", m.flash)
+	}
+	// 落盘了
+	st, err := panel.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.AlertWebhook != "http://127.0.0.1:9/hook" {
+		t.Errorf("设置没写盘: %q", st.AlertWebhook)
+	}
+	if !strings.Contains(m.View(), "告警已配置") {
+		t.Errorf("页面应显示已配置\n%s", m.View())
+	}
 }
