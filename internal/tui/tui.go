@@ -52,10 +52,12 @@ const (
 	viewApply
 	viewUserDetail
 	viewEvents
+	viewSelfTest
 )
 
 var menuItems = []string{
 	"总览与自检",
+	"节点自检（实测连通性）",
 	"节点管理",
 	"用户管理",
 	"生成配置并重启 xray",
@@ -75,11 +77,16 @@ type Model struct {
 	apiOK    bool
 	apiKnown bool
 	// Probe 可注入（测试里别真去起 xray 子进程）
-	Probe     func(panel.Settings, time.Duration) bool
-	SNIProbe  panel.SniProbeFunc
-	flash     string
-	actionOut []string
-	quit      bool
+	Probe    func(panel.Settings, time.Duration) bool
+	SNIProbe panel.SniProbeFunc
+	// SelfTest 可注入（测试里不必真起 xray）；nil 时用 panel 的真实实现
+	SelfTest panel.SelfTestFunc
+	flash    string
+	// 自检页状态
+	selfTesting bool
+	selfResults []panel.SelfTestResult
+	actionOut   []string
+	quit        bool
 	// 写操作：表单与删除确认（nil / 空 = 不在该模式）
 	form    *form
 	confirm string
@@ -206,6 +213,21 @@ func (m Model) repickSNI() (tea.Model, tea.Cmd) {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case selfTestMsg:
+		m.selfTesting = false
+		if msg.err != nil {
+			m.flash = "✗ 自检失败: " + msg.err.Error()
+			return m, nil
+		}
+		m.selfResults = msg.results
+		ok := 0
+		for _, r := range msg.results {
+			if r.OK {
+				ok++
+			}
+		}
+		m.flash = "✓ 实测完成：" + strconv.Itoa(ok) + "/" + strconv.Itoa(len(msg.results)) + " 个节点通"
+		return m, nil
 	case sniPickMsg:
 		if msg.err != nil {
 			m.flash = "✗ SNI 实测失败: " + msg.err.Error()
@@ -349,6 +371,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == viewEvents {
 				return m.sendTestAlert()
 			}
+			if m.view == viewSelfTest {
+				return m.startSelfTest()
+			}
 			return m, nil
 		case "w":
 			if m.view == viewEvents {
@@ -413,20 +438,23 @@ func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 		m.view = viewDoctor
 		m.actionOut = m.doctorLines()
 	case 1:
-		m.view = viewNodes
+		m.view = viewSelfTest
 		m.cursor = 0
 	case 2:
-		m.view = viewUsers
+		m.view = viewNodes
 		m.cursor = 0
 	case 3:
+		m.view = viewUsers
+		m.cursor = 0
+	case 4:
 		m.confirm = "生成配置并重启 xray？（会影响当前连接）"
 		m.confirmAction = "apply"
 		m.onYes = func() error { return nil }
-	case 4:
+	case 5:
 		m.view = viewEvents
 		m.cursor = 0
 		m.actionOut = nil
-	case 5:
+	case 6:
 		m.quit = true
 		return m, tea.Quit
 	}
@@ -459,6 +487,8 @@ func (m Model) View() string {
 		b.WriteString(m.userDetailView())
 	case viewEvents:
 		b.WriteString(m.eventsView())
+	case viewSelfTest:
+		b.WriteString(m.selfTestView())
 	case viewDoctor, viewApply:
 		b.WriteString(m.textView())
 	}
@@ -732,8 +762,10 @@ func (m Model) footer() string {
 		hint += "  ·  c 切换二维码  ·  r 刷新"
 	case viewEvents:
 		hint += "  ·  w webhook  ·  t 测试告警  ·  r 刷新"
+	case viewSelfTest:
+		hint += "  ·  t 开始实测  ·  r 刷新"
 	case viewMenu:
-		hint += "  ·  1-6 快捷打开"
+		hint += "  ·  1-7 快捷打开"
 	default:
 		hint += "  ·  r 刷新"
 	}
@@ -1114,4 +1146,104 @@ func (m Model) sendTestAlert() (tea.Model, tea.Cmd) {
 	}
 	m.flash = "✓ 测试消息已发出"
 	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// 节点自检页：在本机实测节点能不能真的出去
+// ---------------------------------------------------------------------------
+
+type selfTestMsg struct {
+	results []panel.SelfTestResult
+	err     error
+}
+
+// startSelfTest 起一个后台任务跑实测（每个节点要等握手 + 探测，会阻塞好几秒，
+// 所以必须异步，不能卡住界面）。
+func (m Model) startSelfTest() (tea.Model, tea.Cmd) {
+	st := m.currentSettings()
+	run := m.SelfTest
+	// 注入了实现就不再检查二进制：调用方已经接管了"怎么测"
+	if run == nil && panel.FindXray(st) == "" {
+		m.flash = "✗ 找不到 xray 二进制（设置 xray_bin 或装到 /usr/local/bin/xray）"
+		return m, nil
+	}
+	nodes, err := m.Store.Nodes(true)
+	if err != nil {
+		m.flash = "✗ 读节点失败: " + err.Error()
+		return m, nil
+	}
+	if len(nodes) == 0 {
+		m.flash = "⚠ 没有启用的节点"
+		return m, nil
+	}
+	m.selfTesting = true
+	m.selfResults = nil
+	m.flash = "正在实测 " + strconv.Itoa(len(nodes)) + " 个节点…"
+	store := m.Store
+	return m, func() tea.Msg {
+		if run != nil {
+			return selfTestMsg{results: run(store, st, panel.FindXray(st), nodes, "", 18080, 25*time.Second)}
+		}
+		return selfTestMsg{results: panel.SelfTestAll(store, st, panel.FindXray(st),
+			nodes, "", 18080, 25*time.Second)}
+	}
+}
+
+func (m Model) selfTestView() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("节点自检") + "\n\n")
+	b.WriteString(dimStyle.Render("  在本机起一个 xray 客户端，经它的 socks 端口访问外网；") + "\n")
+	b.WriteString(dimStyle.Render("  确认节点真的能出去，并且出口 IP 就是这台落地机。") + "\n\n")
+
+	if m.selfTesting {
+		b.WriteString(warnStyle.Render("  正在实测，请稍候…（每个节点最长约 25 秒，Esc 可返回）") + "\n")
+		return b.String()
+	}
+	if len(m.selfResults) == 0 {
+		b.WriteString("  " + dimStyle.Render("按 t 开始实测") + "\n")
+		return b.String()
+	}
+
+	bad, skipped, tested := 0, 0, 0
+	for _, r := range m.selfResults {
+		if r.Skipped {
+			skipped++
+			continue
+		}
+		tested++
+		if !r.OK {
+			bad++
+		}
+	}
+	for _, r := range m.selfResults {
+		mark, style := "✓ 通", okStyle
+		switch {
+		case r.Skipped:
+			mark, style = "— 跳过", dimStyle
+		case !r.OK:
+			mark, style = "✗ 不通", errStyle
+		}
+		line := "  " + style.Render(mark) + "  " + r.Tag + dimStyle.Render("（"+r.Proto+"）")
+		if r.Latency != "" {
+			line += "  " + r.Latency
+		}
+		if r.ExitIP != "" {
+			line += "  " + dimStyle.Render("出口 "+r.ExitIP)
+		}
+		b.WriteString(line + "\n")
+		if r.Err != "" {
+			b.WriteString("        " + errStyle.Render(r.Err) + "\n")
+		}
+	}
+	b.WriteString("\n")
+	switch {
+	case bad > 0:
+		b.WriteString(errStyle.Render("  "+strconv.Itoa(bad)+"/"+strconv.Itoa(tested)+" 个节点不通") + "\n")
+	case skipped > 0:
+		b.WriteString(warnStyle.Render("  全部可用（"+strconv.Itoa(skipped)+" 个跳过）") + "\n")
+	default:
+		b.WriteString(okStyle.Render("  全部节点可用") + "\n")
+	}
+	b.WriteString(dimStyle.Render("  若客户端仍超时，问题在客户端或本地网络，不在服务端。") + "\n")
+	return b.String()
 }

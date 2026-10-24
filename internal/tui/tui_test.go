@@ -39,6 +39,29 @@ func newTestModel(t *testing.T) Model {
 	return m
 }
 
+// gotoMenu 按菜单项的名字进入，不要按固定次数下移——菜单加一项就全错位。
+func gotoMenu(t *testing.T, m Model, label string) Model {
+	t.Helper()
+	idx := -1
+	for i, item := range menuItems {
+		if strings.Contains(item, label) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("菜单里没有 %q（现有：%v）", label, menuItems)
+	}
+	if m.view != viewMenu {
+		m = key(m, "q")
+	}
+	m.cursor = 0
+	for i := 0; i < idx; i++ {
+		m = key(m, "down")
+	}
+	return key(m, "enter")
+}
+
 func key(m Model, s string) Model {
 	var msg tea.KeyMsg
 	switch s {
@@ -61,8 +84,7 @@ func key(m Model, s string) Model {
 
 func TestPageNavigation(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down") // 节点管理
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "节点管理")
 	m = key(m, "pgdown")
 	if m.cursor == 0 {
 		t.Fatal("pgdown 应跳过当前表格页")
@@ -86,10 +108,7 @@ func TestMainMenuView(t *testing.T) {
 
 func TestNavigation(t *testing.T) {
 	m := newTestModel(t)
-	// ↓ ↓ Enter -> 用户管理
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "用户管理")
 	if m.view != viewUsers {
 		t.Fatalf("应进入用户视图，实际 %v", m.view)
 	}
@@ -104,9 +123,7 @@ func TestNavigation(t *testing.T) {
 	if m.view != viewMenu {
 		t.Fatalf("q 应返回主菜单，实际 %v", m.view)
 	}
-	// ↑ Enter -> 节点管理
-	m = key(m, "down")
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "节点管理")
 	if m.view != viewNodes {
 		t.Fatalf("应进入节点视图，实际 %v", m.view)
 	}
@@ -124,8 +141,7 @@ func TestNavigation(t *testing.T) {
 
 func TestTUIRepickSNI(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "节点管理")
 	nodes, err := m.Store.Nodes(false)
 	if err != nil || len(nodes) == 0 {
 		t.Fatal("夹具应包含节点")
@@ -173,10 +189,7 @@ func TestTUIRepickSNI(t *testing.T) {
 
 func TestQuit(t *testing.T) {
 	m := newTestModel(t)
-	for i := 0; i < len(menuItems)-1; i++ { // 移到「退出」（按菜单项数走，加项也不会错位）
-		m = key(m, "down")
-	}
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "退出")
 	if !m.Quit() {
 		t.Error("选择退出后 Quit() 应为 true")
 	}
@@ -211,8 +224,7 @@ func typeText(m Model, s string) Model {
 
 func TestTUIAddNodeViaForm(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down") // 节点管理
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "节点管理")
 	before := len(mustNodes(t, m))
 
 	m = key(m, "a")
@@ -269,8 +281,7 @@ func TestTUIAddNodeViaForm(t *testing.T) {
 
 func TestTUIFormValidationAndCancel(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "节点管理")
 	before := len(mustNodes(t, m))
 
 	// 空 tag 应被拦下并留在表单里
@@ -307,8 +318,7 @@ func TestTUIFormValidationAndCancel(t *testing.T) {
 
 func TestTUIDeleteNodeNeedsConfirm(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "节点管理")
 	before := len(mustNodes(t, m))
 	tag := mustNodes(t, m)[0].Tag
 
@@ -337,9 +347,7 @@ func TestTUIDeleteNodeNeedsConfirm(t *testing.T) {
 
 func TestTUIEditUserQuota(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "enter") // 用户管理
+	m = gotoMenu(t, m, "用户管理")
 	users, _ := m.Store.Users()
 	if len(users) == 0 {
 		t.Skip("夹具里没有用户")
@@ -373,9 +381,7 @@ func TestTUIEditUserQuota(t *testing.T) {
 
 func TestTUIAddUserDefaultsToAllNodes(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "enter")
+	m = gotoMenu(t, m, "用户管理")
 	m = key(m, "a")
 	if m.form == nil {
 		t.Fatal("按 a 应打开新增用户表单")
@@ -418,9 +424,7 @@ func mustNodes(t *testing.T, m Model) []panel.Node {
 // 用户详情页：这是 TUI 里最实用的一个——直接在终端出二维码，手机扫。
 func TestTUIUserDetailAndQR(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "enter") // 用户管理
+	m = gotoMenu(t, m, "用户管理")
 	m = key(m, "enter") // 第一个用户的详情
 	if m.view != viewUserDetail {
 		t.Fatalf("回车应进入用户详情，实际 %v", m.view)
@@ -462,11 +466,7 @@ func TestTUIUserDetailAndQR(t *testing.T) {
 // 事件与告警页：能看事件、能配 webhook（含格式校验）、能发测试。
 func TestTUIEventsAndAlert(t *testing.T) {
 	m := newTestModel(t)
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "down")
-	m = key(m, "enter") // 事件与告警
+	m = gotoMenu(t, m, "事件与告警")
 	if m.view != viewEvents {
 		t.Fatalf("应进入事件页，实际 %v", m.view)
 	}
@@ -510,5 +510,80 @@ func TestTUIEventsAndAlert(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "告警已配置") {
 		t.Errorf("页面应显示已配置\n%s", m.View())
+	}
+}
+
+// 节点自检页：异步实测 + 三种结果（通/不通/跳过）的渲染。
+func TestTUISelfTest(t *testing.T) {
+	m := newTestModel(t)
+	m = gotoMenu(t, m, "节点自检")
+	if m.view != viewSelfTest {
+		t.Fatalf("应进入自检页，实际 %v", m.view)
+	}
+	if !strings.Contains(m.View(), "按 t 开始实测") {
+		t.Errorf("未实测时应提示按 t\n%s", m.View())
+	}
+
+	// 注入假实现：一个通、一个不通、一个跳过（真实现要起 xray，测试里不干这事）
+	var gotNodes []panel.Node
+	m.SelfTest = func(_ *panel.Store, _ panel.Settings, _ string, nodes []panel.Node,
+		_ string, _ int, _ time.Duration) []panel.SelfTestResult {
+		gotNodes = nodes
+		return []panel.SelfTestResult{
+			{Tag: "reality-tcp", Proto: "vless", OK: true, Latency: "42ms", ExitIP: "203.0.113.9"},
+			{Tag: "hy2", Proto: "hysteria", Err: "204 探测失败（http=）"},
+			{Tag: "ss2022", Proto: "shadowsocks", Skipped: true, Err: "这个协议测不了"},
+		}
+	}
+	// 走真实的按键路径，再执行它返回的命令（异步不能卡界面）
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	m = model.(Model)
+	if cmd == nil {
+		t.Fatal("按 t 应启动自检命令")
+	}
+	if !m.selfTesting || !strings.Contains(m.View(), "正在实测") {
+		t.Errorf("实测期间应显示进行中状态（不能卡住界面）\n%s", m.View())
+	}
+	model, _ = m.Update(cmd())
+	m = model.(Model)
+	if m.selfTesting {
+		t.Error("收到结果后应结束进行中状态")
+	}
+	if len(gotNodes) == 0 {
+		t.Error("应该把启用的节点交给实测实现")
+	}
+	v := m.View()
+	for _, want := range []string{"✓ 通", "✗ 不通", "— 跳过", "42ms", "203.0.113.9",
+		"204 探测失败", "这个协议测不了", "1/2 个节点不通"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("自检结果缺少 %q\n%s", want, v)
+		}
+	}
+	if !strings.Contains(m.flash, "1/3") {
+		t.Errorf("状态行应汇总结果，实际 %q", m.flash)
+	}
+}
+
+// 全部通过时不该报错，而且要明确说"不在服务端"。
+func TestTUISelfTestAllGood(t *testing.T) {
+	m := newTestModel(t)
+	m = gotoMenu(t, m, "节点自检")
+	m.SelfTest = func(_ *panel.Store, _ panel.Settings, _ string, nodes []panel.Node,
+		_ string, _ int, _ time.Duration) []panel.SelfTestResult {
+		out := make([]panel.SelfTestResult, 0, len(nodes))
+		for _, n := range nodes {
+			out = append(out, panel.SelfTestResult{Tag: n.Tag, Proto: n.Proto, OK: true, Latency: "10ms"})
+		}
+		return out
+	}
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	m = model.(Model)
+	model, _ = m.Update(cmd())
+	m = model.(Model)
+	if !strings.Contains(m.View(), "全部节点可用") {
+		t.Errorf("全通时应给出结论\n%s", m.View())
+	}
+	if !strings.Contains(m.View(), "不在服务端") {
+		t.Error("全通时应提示问题不在服务端")
 	}
 }
