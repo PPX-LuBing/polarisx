@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"crypto/ecdh"
+	"encoding/base64"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,4 +94,44 @@ func TestDisableUserKicksViaRmu(t *testing.T) {
 			t.Errorf("找不到 xray 时应静默跳过: %v", err)
 		}
 	})
+}
+
+// REALITY 密钥必须与 `xray x25519` 同格式（base64url 无填充，43 字符），
+// 且公私钥要自洽——否则客户端连不上，而这类错误在配置生成阶段看不出来。
+func TestGenerateRealityKeys(t *testing.T) {
+	priv, pub, sid, err := GenerateRealityKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(priv) != 43 || len(pub) != 43 {
+		t.Errorf("长度应为 43（base64url 无填充 32 字节），实际 priv=%d pub=%d", len(priv), len(pub))
+	}
+	for _, s := range []string{priv, pub} {
+		if strings.ContainsAny(s, "+/=") {
+			t.Errorf("应为 base64url 无填充（不含 + / =）: %s", s)
+		}
+		if _, err := base64.RawURLEncoding.DecodeString(s); err != nil {
+			t.Errorf("不是合法 base64url: %s", s)
+		}
+	}
+	if len(sid) != 8 {
+		t.Errorf("shortId 应为 8 位十六进制，实际 %q", sid)
+	}
+	if _, err := hex.DecodeString(sid); err != nil {
+		t.Errorf("shortId 不是十六进制: %q", sid)
+	}
+	// 公钥必须由私钥推导得出
+	kb, _ := base64.RawURLEncoding.DecodeString(priv)
+	k, err := ecdh.X25519().NewPrivateKey(kb)
+	if err != nil {
+		t.Fatalf("私钥不可用: %v", err)
+	}
+	if got := base64.RawURLEncoding.EncodeToString(k.PublicKey().Bytes()); got != pub {
+		t.Errorf("公钥与私钥不匹配:\n  priv 导出 %s\n  给的    %s", got, pub)
+	}
+	// 两次生成必须不同
+	priv2, _, sid2, _ := GenerateRealityKeys()
+	if priv2 == priv || sid2 == sid {
+		t.Error("两次生成不应相同")
+	}
 }

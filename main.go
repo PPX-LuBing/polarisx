@@ -253,6 +253,24 @@ func cmdNode(args []string) error {
 			}
 			n.SSKey = k
 		}
+		// reality 缺密钥时自动生成：原来必须手填 --priv-key/--pub-key/--short-id，
+		// 等于用 CLI 建不出一个可用的 reality 节点。
+		if n.Security == "reality" && (n.PrivKey == "" || n.PubKey == "" || n.ShortID == "") {
+			priv, pub, sid, err := panel.GenerateRealityKeys()
+			if err != nil {
+				return err
+			}
+			if n.PrivKey == "" {
+				n.PrivKey = priv
+			}
+			if n.PubKey == "" {
+				n.PubKey = pub
+			}
+			if n.ShortID == "" {
+				n.ShortID = sid
+			}
+			fmt.Printf("已生成 REALITY 密钥对（shortId=%s）\n", n.ShortID)
+		}
 		// --sni auto：在这台机器上实测候选，自动挑最好的（不用手填、也不硬编码）
 		if strings.EqualFold(n.SNI, "auto") {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
