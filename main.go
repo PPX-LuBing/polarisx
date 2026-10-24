@@ -115,9 +115,9 @@ func usage() {
   user <add|list|set|del|link>  用户与订阅管理
   apply [--no-restart] 生成配置并让运行中的 xray 生效（adu，失败回退重启）
   set k=v [k=v ...]    改设置（键名与 settings.json 一致）
-  sni [--top N] [--apply --node TAG]
+  sni [--top N] [--apply --node TAG] [--yes]
                        在本机实测 SNI 候选（TLS1.3+h2+X25519、排除 Cloudflare 前置），
-                       按延迟排名；--apply 把最佳结果写到节点的 sni/dest
+                       按延迟排名；--apply 把最佳结果写到节点的 sni/dest（默认确认，--yes 跳过）
   qr <用户> [--sub|--clash|--singbox]
                        打印二维码（默认每个节点一张；--clash/--singbox 打订阅地址，
                        后缀写进码里，手机扫码直接能用）

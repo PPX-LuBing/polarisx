@@ -145,9 +145,10 @@ func TestTUIRepickSNI(t *testing.T) {
 	}
 	original, _ := m.Store.NodeByTag(nodes[idx].Tag)
 	m.SNIProbe = func(_ context.Context, host string) panel.SniResult {
-		return panel.SniResult{Host: "candidate.example", TLS13: true, H2: true, X25519: true, Totalms: float64(len(host))}
+		return panel.SniResult{Host: panel.SniCandidates[0], TLS13: true, H2: true, X25519: true, Totalms: float64(len(host))}
 	}
-	model, cmd := m.repickSNI()
+	// Drive the action through Bubble Tea's real key path, then execute its command.
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	m = model.(Model)
 	if cmd == nil {
 		t.Fatal("REALITY 节点应启动 SNI 探测命令")
@@ -159,10 +160,10 @@ func TestTUIRepickSNI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SNI == original.SNI || got.SNI != "candidate.example" {
+	if got.SNI == original.SNI || got.SNI != panel.SniCandidates[0] {
 		t.Fatalf("SNI 未切换: old=%q new=%q", original.SNI, got.SNI)
 	}
-	if !strings.Contains(got.Dest, "candidate.example:") {
+	if !strings.Contains(got.Dest, panel.SniCandidates[0]+":") {
 		t.Fatalf("dest 未随 SNI 切换: %q", got.Dest)
 	}
 	if !strings.Contains(m.flash, "servername") || !strings.Contains(m.flash, "重新拉取订阅") {

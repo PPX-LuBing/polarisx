@@ -540,7 +540,7 @@ func (m Model) helpView() string {
 	case viewMenu:
 		rows = append(rows, "1-6         直接打开菜单项")
 	case viewNodes:
-		rows = append(rows, "a 新增   e 编辑   d 删除   选择行后操作")
+		rows = append(rows, "a 新增   e 编辑   s 重选 SNI   d 删除   选择行后操作")
 	case viewUsers:
 		rows = append(rows, "Enter 详情/二维码   a 新增   e 编辑   d 删除")
 	case viewUserDetail:
