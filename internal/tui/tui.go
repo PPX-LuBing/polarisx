@@ -5,6 +5,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,10 @@ type Model struct {
 	flash     string
 	actionOut []string
 	quit      bool
+	// 写操作：表单与删除确认（nil / 空 = 不在该模式）
+	form    *form
+	confirm string
+	onYes   func() error
 }
 
 // New 构造 TUI 模型。
@@ -92,7 +97,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+		// 表单模式：按键全部交给表单
+		if m.form != nil {
+			if !m.form.update(key) {
+				if m.form.doneMsg != "" {
+					m.flash = m.form.doneMsg
+				}
+				m.form = nil
+			}
+			return m, nil
+		}
+		// 删除确认
+		if m.confirm != "" {
+			switch key {
+			case "y", "Y":
+				if err := m.onYes(); err != nil {
+					m.flash = "✗ " + err.Error()
+				} else {
+					m.flash = "✓ 已完成"
+				}
+			case "n", "N", "esc":
+				m.flash = "已取消"
+			}
+			m.confirm, m.onYes = "", nil
+			return m, nil
+		}
+		switch key {
 		case "ctrl+c":
 			m.quit = true
 			return m, tea.Quit
@@ -119,11 +150,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "down", "j":
-			limit := len(menuItems)
-			if m.view == viewMenu && m.cursor < limit-1 {
+			if m.cursor < m.rowCount()-1 {
 				m.cursor++
 			}
 			return m, nil
+		case "a":
+			return m.startAdd()
+		case "d":
+			return m.startDelete()
+		case "e":
+			return m.startEdit()
 		case "enter":
 			if m.view == viewMenu {
 				return m.selectMenu()
@@ -134,6 +170,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// rowCount 当前视图里可选的行数（菜单/节点/用户）。
+func (m Model) rowCount() int {
+	switch m.view {
+	case viewNodes:
+		nodes, _ := m.Store.Nodes(false)
+		return len(nodes)
+	case viewUsers:
+		users, _ := m.Store.Users()
+		return len(users)
+	}
+	return len(menuItems)
+}
+
 func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 	switch m.cursor {
 	case 0:
@@ -141,8 +190,10 @@ func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 		m.actionOut = m.doctorLines()
 	case 1:
 		m.view = viewNodes
+		m.cursor = 0
 	case 2:
 		m.view = viewUsers
+		m.cursor = 0
 	case 3:
 		m.view = viewApply
 		m.actionOut = m.applyLines()
@@ -154,6 +205,13 @@ func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	if m.form != nil {
+		return m.header() + "\n" + m.form.view(m.width)
+	}
+	if m.confirm != "" {
+		return m.header() + "\n\n" + warnStyle.Render("  "+m.confirm) +
+			"\n\n" + dimStyle.Render("  y 确认 · n 取消") + "\n"
+	}
 	m.refreshStatus()
 	var b strings.Builder
 	b.WriteString(m.header())
@@ -295,7 +353,8 @@ func (m Model) nodesView() string {
 	}
 	head := fmt.Sprintf("节点 %d 个", len(nodes))
 	return headerStyle.Render(head) + "\n\n" +
-		table([]string{"tag", "协议", "传输", "安全", "端口", "入口", "状态", "问题"}, rows)
+		table([]string{"tag", "协议", "传输", "安全", "端口", "入口", "状态", "问题"}, rows) +
+		"\n" + dimStyle.Render("  a 新增 · e 启用/停用 · d 删除 · r 刷新 · Esc 返回")
 }
 
 func (m Model) usersView() string {
@@ -393,4 +452,181 @@ func (m *Model) applyLines() []string {
 		out = append(out, okStyle.Render("✓ ")+"已重启 xray")
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// 写操作：建/改/删节点与用户
+//
+// 表单字段刻意只收"必须手填"的部分：reality 的密钥对与 shortId 由 panel 自动生成，
+// 用户不填节点就等于绑全部节点（与 CLI 语义一致）。
+// ---------------------------------------------------------------------------
+
+func (m Model) startAdd() (tea.Model, tea.Cmd) {
+	switch m.view {
+	case viewNodes:
+		m.form = newForm("新增节点", []field{
+			{label: "tag", hint: "唯一标识，如 ix-reality"},
+			{label: "协议", value: "vless", pick: []string{"vless", "vmess", "trojan", "shadowsocks", "hysteria2"}},
+			{label: "传输", value: "tcp", pick: []string{"tcp", "ws", "httpupgrade", "xhttp", "grpc", "hysteria"}},
+			{label: "安全", value: "reality", pick: []string{"reality", "tls", "none"}},
+			{label: "端口", hint: "如 443"},
+			{label: "入口地址", hint: "客户端连的地址，如 1.2.3.4"},
+			{label: "SNI", hint: "留空=自动实测挑选（reality/tls）"},
+		}, "reality 的密钥对与 shortId 会自动生成；SNI 留空则在本机实测挑选",
+			func(v []string) (bool, string, error) {
+				if v[0] == "" {
+					return true, "", fmt.Errorf("tag 不能为空")
+				}
+				port, err := strconv.Atoi(v[4])
+				if err != nil || port <= 0 || port > 65535 {
+					return true, "", fmt.Errorf("端口要是 1-65535 的数字")
+				}
+				n := panel.Node{Tag: v[0], Proto: v[1], Net: v[2], Security: v[3],
+					Port: port, EntryHost: v[5], SNI: v[6]}
+				if n.Security == "reality" {
+					priv, pub, sid, err := panel.GenerateRealityKeys()
+					if err != nil {
+						return true, "", err
+					}
+					n.PrivKey, n.PubKey, n.ShortID = priv, pub, sid
+					if n.Dest == "" && n.SNI != "" {
+						n.Dest = n.SNI + ":443"
+					}
+				}
+				if err := m.Store.CreateNode(n); err != nil {
+					return true, "", err
+				}
+				return false, "✓ 已新增节点 " + n.Tag + "（记得生成配置并重启）", nil
+			})
+	case viewUsers:
+		var tags []string
+		if nodes, err := m.Store.Nodes(true); err == nil {
+			for _, n := range nodes {
+				tags = append(tags, n.Tag)
+			}
+		}
+		m.form = newForm("新增用户", []field{
+			{label: "用户名", hint: "字母数字 _ . @ - ，2-48 位"},
+			{label: "额度(GB)", value: "100", hint: "0=不限"},
+			{label: "到期", hint: "YYYY-MM-DD，留空=不限"},
+			{label: "节点", hint: "逗号分隔；留空=全部节点（可选: " + strings.Join(tags, ",") + "）"},
+		}, "留空节点 = 绑全部节点（与 CLI 一致）",
+			func(v []string) (bool, string, error) {
+				if v[0] == "" {
+					return true, "", fmt.Errorf("用户名不能为空")
+				}
+				quota := 0.0
+				if v[1] != "" {
+					q, err := strconv.ParseFloat(v[1], 64)
+					if err != nil || q < 0 {
+						return true, "", fmt.Errorf("额度要是不小于 0 的数字")
+					}
+					quota = q
+				}
+				var nt []string
+				for _, t := range strings.Split(v[3], ",") {
+					if t = strings.TrimSpace(t); t != "" {
+						nt = append(nt, t)
+					}
+				}
+				u, err := m.Store.CreateUser(v[0], quota, v[2], "", nt)
+				if err != nil {
+					return true, "", err
+				}
+				return false, fmt.Sprintf("✓ 已新增用户 %s（订阅 token=%s…）", u.Name, u.Token[:8]), nil
+			})
+	default:
+		m.flash = "这个页面没有新增操作"
+	}
+	return m, nil
+}
+
+func (m Model) startEdit() (tea.Model, tea.Cmd) {
+	switch m.view {
+	case viewNodes:
+		nodes, _ := m.Store.Nodes(false)
+		if m.cursor >= len(nodes) {
+			return m, nil
+		}
+		n := nodes[m.cursor]
+		m.form = newForm("编辑节点 "+n.Tag, []field{
+			{label: "端口", value: fmt.Sprintf("%d", n.Port)},
+			{label: "入口地址", value: n.EntryHost},
+			{label: "SNI", value: n.SNI},
+			{label: "启用", value: map[bool]string{true: "1", false: "0"}[n.Enabled == 1],
+				pick: []string{"1", "0"}},
+		}, "回车提交；改完记得生成配置并重启",
+			func(v []string) (bool, string, error) {
+				port, err := strconv.Atoi(v[0])
+				if err != nil || port <= 0 || port > 65535 {
+					return true, "", fmt.Errorf("端口要是 1-65535 的数字")
+				}
+				pairs := []string{fmt.Sprintf("port=%d", port), "entry_host=" + v[1],
+					"sni=" + v[2], "enabled=" + v[3]}
+				if n.Security == "reality" && v[2] != "" {
+					pairs = append(pairs, "dest="+v[2]+":443")
+				}
+				if err := m.Store.UpdateNode(n.Tag, pairs); err != nil {
+					return true, "", err
+				}
+				return false, "✓ 已更新节点 " + n.Tag, nil
+			})
+	case viewUsers:
+		users, _ := m.Store.Users()
+		if m.cursor >= len(users) {
+			return m, nil
+		}
+		u := users[m.cursor]
+		m.form = newForm("编辑用户 "+u.Name, []field{
+			{label: "额度(GB)", value: fmt.Sprintf("%g", u.QuotaGB)},
+			{label: "到期", value: u.ExpireAt},
+			{label: "启用", value: map[bool]string{true: "1", false: "0"}[u.Enable == 1],
+				pick: []string{"1", "0"}},
+			{label: "备注", value: u.Note},
+		}, "停用会同时摘掉在线连接（xray api rmu）",
+			func(v []string) (bool, string, error) {
+				q, err := strconv.ParseFloat(v[0], 64)
+				if err != nil || q < 0 {
+					return true, "", fmt.Errorf("额度要是不小于 0 的数字")
+				}
+				pairs := []string{fmt.Sprintf("quota_gb=%g", q), "expire_at=" + v[1],
+					"enable=" + v[2], "note=" + v[3]}
+				if err := m.Store.UpdateUser(u.Name, pairs); err != nil {
+					return true, "", err
+				}
+				if v[2] == "0" {
+					if uu, err := m.Store.UserByName(u.Name); err == nil {
+						_ = m.Store.DisableUser(m.St, uu, "管理员手动停用", true)
+					}
+				}
+				return false, "✓ 已更新用户 " + u.Name, nil
+			})
+	default:
+		m.flash = "这个页面没有编辑操作"
+	}
+	return m, nil
+}
+
+func (m Model) startDelete() (tea.Model, tea.Cmd) {
+	switch m.view {
+	case viewNodes:
+		nodes, _ := m.Store.Nodes(false)
+		if m.cursor >= len(nodes) {
+			return m, nil
+		}
+		tag := nodes[m.cursor].Tag
+		m.confirm = fmt.Sprintf("删除节点 %s？（订阅里的该节点会消失）", tag)
+		m.onYes = func() error { return m.Store.DeleteNode(tag) }
+	case viewUsers:
+		users, _ := m.Store.Users()
+		if m.cursor >= len(users) {
+			return m, nil
+		}
+		name := users[m.cursor].Name
+		m.confirm = fmt.Sprintf("删除用户 %s？（其订阅地址立即失效）", name)
+		m.onYes = func() error { return m.Store.DeleteUser(name) }
+	default:
+		m.flash = "这个页面没有删除操作"
+	}
+	return m, nil
 }
