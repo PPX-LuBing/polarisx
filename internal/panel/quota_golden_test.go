@@ -182,7 +182,7 @@ func TestQuotaGolden(t *testing.T) {
 				gd := time.Unix(gE, 0).In(time.Local).Format("2006-01-02 15:04:05")
 				wd := time.Unix(wE, 0).In(fixLoc).Format("2006-01-02 15:04:05")
 				if gd != wd {
-					t.Errorf("%s expire 代表的日期不一致: go=%s python=%s", name, gd, wd)
+					t.Errorf("%s expire 代表的日期不一致: go=%s golden=%s", name, gd, wd)
 				}
 			}
 		}

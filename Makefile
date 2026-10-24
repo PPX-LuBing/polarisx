@@ -25,7 +25,7 @@ all: fmt vet test build
 build:
 	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) .
 
-# 测试与时区无关（夹具生成固定 UTC，比对按语义做），所以不强制 TZ
+# 测试与时区无关，golden 比对按语义处理时间字段，所以不强制 TZ
 test:
 	$(GO) test $(PKG)
 
