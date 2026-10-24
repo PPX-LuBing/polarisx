@@ -33,4 +33,5 @@ jobs:
             --title "PolarisX ${GITHUB_REF_NAME}" \
             --generate-notes \
             dist/polarisx-* dist/SHA256SUMS \
+            deploy/install.sh \
             deploy/polarisx-*.service deploy/polarisx-*.timer

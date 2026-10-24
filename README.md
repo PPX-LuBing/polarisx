@@ -1,6 +1,6 @@
 # PolarisX（北极星）
 
-当前版本：`v2.0.3`
+当前版本：`v2.0.4`
 
 Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 
@@ -33,6 +33,27 @@ POLARISX_HOME=/var/lib/polarisx ./bin/polarisx show      # 打印将要写入的
 ```
 
 数据目录用 `POLARISX_HOME`，默认 `/var/lib/polarisx`。
+
+### 全新机器上装 xray
+
+面板不代装 xray，用官方脚本装：
+
+```bash
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+```
+
+**注意权限**：官方脚本建的单元是 `User=xray`，而面板把配置写成 `0600 root`，
+xray 会起不来（日志里只有 `permission denied`）。两种修法任选：
+
+```bash
+# 甲：让 xray 以 root 运行（与既有机器一致）
+sed -i 's/^User=xray/User=root/; s/^Group=xray/Group=root/' /etc/systemd/system/xray.service
+systemctl daemon-reload && systemctl restart xray
+
+# 乙：保持最小权限，把配置交给 xray 用户（注意每次 apply 后属主会被重写，需配合 sudo 规则或改用甲）
+```
+
+`polarisx doctor` 会直接点出这个问题（包括当前权限与属主）。
 
 > **安装脚本要和 `deploy/` 里的 systemd 单元文件同目录**：单元缺失时它会先尝试从同一个
 > Release 取，取不到就**直接报错退出**（不会静默跳过——那样 `--start` 会因为单元不存在而

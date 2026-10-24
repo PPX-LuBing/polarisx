@@ -7,7 +7,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=POLARISX_HOME=/var/lib/polarisx
-ExecStart=/usr/local/bin/polarisx sub --listen 0.0.0.0:8080
+# 监听地址由 settings 里的 sub_listen 决定（默认 0.0.0.0:8080）。
+# 以前这里硬编码 --listen，导致改 sub_listen 不生效、且每次装单元都被覆盖回去。
+ExecStart=/usr/local/bin/polarisx sub
 Restart=always
 RestartSec=2
 # 只读系统目录，只允许写数据目录

@@ -1241,6 +1241,10 @@ func cmdDoctor(args []string) error {
 	fmt.Printf("[ok] 出口 IP 族: %s\n", st.OutboundDomainStrategy)
 	fmt.Printf("[ok] Clash 分流预设: %s\n", st.ClashRules)
 
+	if msg := panel.XrayConfigReadable(st); msg != "" {
+		fmt.Printf("[!!] %s\n", msg)
+	}
+
 	cfg, err := store.BuildConfig(st)
 	if err != nil {
 		return err

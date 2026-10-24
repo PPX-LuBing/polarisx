@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -146,4 +149,78 @@ func RestartXray(st Settings, quiet bool) error {
 // contextWithTimeout 是 context.WithTimeout 的小包装（集中一处便于调整）。
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
+}
+
+// XrayConfigReadable 检查 xray 服务的运行身份能不能读到配置文件。
+// 读不到时返回一句人话（含怎么修），能读到或判断不了时返回空串。
+//
+// 为什么值得单独查：官方 Xray-install 脚本建的单元是 User=xray，而面板把配置写成
+// 0600 root——xray 于是起不来，日志里只有 "permission denied"，离真正原因很远。
+// 全新装一台机器必踩（本仓库踩过）。
+func XrayConfigReadable(st Settings) string {
+	path := st.XrayConfig
+	if path == "" {
+		return ""
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "" // 配置还没生成，不是这里的问题
+	}
+	out, err := exec.Command("systemctl", "show", "-p", "User", "--value", "xray").Output()
+	if err != nil {
+		return "" // 没有 systemd 或没有 xray 单元，不妄下结论
+	}
+	who := strings.TrimSpace(string(out))
+	if who == "" || who == "root" {
+		return ""
+	}
+	u, err := user.Lookup(who)
+	if err != nil {
+		return ""
+	}
+	uid, gid, ok := fileOwner(fi)
+	if !ok {
+		return ""
+	}
+	mode := fi.Mode().Perm()
+	if modeReadable(mode, uid, gid, u.Uid, gidInGroups(gid, u)) {
+		return ""
+	}
+	return fmt.Sprintf("xray 以 %s 运行，但读不到 %s（权限 %04o，属主 uid=%d）——"+
+		"xray 会起不来，日志里只有 permission denied。两种修法：把 %s 的属主/权限放开给 %s，"+
+		"或把 /etc/systemd/system/xray.service 的 User 改成 root 后 systemctl daemon-reload && systemctl restart xray",
+		who, path, mode, uid, path, who)
+}
+
+// modeReadable 判断"以 uid 运行、其主组是否命中文件组"的身份能否读这个文件。
+func modeReadable(mode os.FileMode, ownerUID, ownerGID int, userUID string, inGroup bool) bool {
+	switch {
+	case strconv.Itoa(ownerUID) == userUID:
+		return mode&0o400 != 0
+	case inGroup:
+		return mode&0o040 != 0
+	default:
+		return mode&0o004 != 0
+	}
+}
+
+func fileOwner(fi os.FileInfo) (int, int, bool) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, 0, false
+	}
+	return int(st.Uid), int(st.Gid), true
+}
+
+func gidInGroups(gid int, u *user.User) bool {
+	ids, err := u.GroupIds()
+	if err != nil {
+		return false
+	}
+	for _, id := range ids {
+		if id == strconv.Itoa(gid) {
+			return true
+		}
+	}
+	return false
 }
