@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -76,13 +77,18 @@ func TestRankSNITieBreaksByHost(t *testing.T) {
 func TestBenchSNIConcurrent(t *testing.T) {
 	hosts := []string{"a", "b", "c", "d", "e"}
 	var maxConcurrent, cur int
+	var mu sync.Mutex
 	probe := func(ctx context.Context, host string) SniResult {
+		mu.Lock()
 		cur++
 		if cur > maxConcurrent {
 			maxConcurrent = cur
 		}
+		mu.Unlock()
 		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
 		cur--
+		mu.Unlock()
 		return mkResult(host, 1, true, true, true, false, "")
 	}
 	got := BenchSNI(context.Background(), hosts, probe, 3)

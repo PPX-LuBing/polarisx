@@ -125,9 +125,21 @@ func RestartXray(st Settings, quiet bool) error {
 	if cmdline == "" {
 		cmdline = "systemctl restart xray"
 	}
+	// restart_cmd is an operator-controlled setting, but it is still a shell
+	// boundary. Preserve custom executables while rejecting shell syntax; this
+	// keeps existing service wrappers working without allowing `sh -c` injection.
+	fields := strings.Fields(cmdline)
+	if len(fields) == 0 || strings.HasPrefix(fields[0], "-") {
+		return fmt.Errorf("restart_cmd 不能为空，且命令不能以 - 开头")
+	}
+	for _, field := range fields {
+		if strings.ContainsAny(field, ";&|<>$`(){}!\\\"'") {
+			return fmt.Errorf("restart_cmd 不允许 shell 运算符；请填写可执行文件及参数")
+		}
+	}
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", "-c", cmdline)
+	cmd := exec.CommandContext(ctx, fields[0], fields[1:]...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {

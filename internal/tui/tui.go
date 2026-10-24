@@ -1,6 +1,4 @@
-// Package tui 是 PolarisX 的终端界面（bubbletea + lipgloss）。
-//
-// 只依赖这两个库：表格/状态框用 lipgloss 自己拼，够用就不引 bubbles。
+// Package tui 是 PolarisX 的终端界面，基于 Bubble Tea 官方 bubbles 组件。
 package tui
 
 import (
@@ -9,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	bubbleskey "github.com/charmbracelet/bubbles/key"
+	bubblesTable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -16,15 +17,19 @@ import (
 )
 
 var (
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
 	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	selStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	selStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
 	boxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).Padding(0, 1)
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
+			BorderForeground(lipgloss.Color("62")).Padding(1, 2)
+	headerStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
+	pageStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	selectedRowStyle = lipgloss.NewStyle().Background(lipgloss.Color("236"))
+	statStyle        = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("238")).Padding(0, 1)
 )
 
 // view 是当前页面。
@@ -69,16 +74,52 @@ type Model struct {
 	form    *form
 	confirm string
 	onYes   func() error
+	// confirmAction identifies actions that need a post-confirmation transition
+	// (currently the xray apply action).
+	confirmAction string
 	// 用户详情页：看订阅地址与二维码
 	detailUser string
 	qrFormat   string
 	qrArt      string
 	qrShown    bool
+	showHelp   bool
+	help       help.Model
+	keys       appKeyMap
+}
+
+// appKeyMap is shared by the help bubble and the page footer. Keeping the
+// bindings in one place prevents the UI from advertising keys that Update does
+// not actually handle.
+type appKeyMap struct {
+	Up, Down, PageUp, PageDown, Top, Bottom, Submit, Back, Help, Quit bubbleskey.Binding
+}
+
+func newAppKeyMap() appKeyMap {
+	return appKeyMap{
+		Up:       bubbleskey.NewBinding(bubbleskey.WithKeys("up", "k"), bubbleskey.WithHelp("↑/k", "上移")),
+		Down:     bubbleskey.NewBinding(bubbleskey.WithKeys("down", "j"), bubbleskey.WithHelp("↓/j", "下移")),
+		PageUp:   bubbleskey.NewBinding(bubbleskey.WithKeys("pgup", "b"), bubbleskey.WithHelp("b/pgup", "上翻")),
+		PageDown: bubbleskey.NewBinding(bubbleskey.WithKeys("pgdown", "f", " "), bubbleskey.WithHelp("f/pgdn", "下翻")),
+		Top:      bubbleskey.NewBinding(bubbleskey.WithKeys("home", "g"), bubbleskey.WithHelp("g/home", "顶部")),
+		Bottom:   bubbleskey.NewBinding(bubbleskey.WithKeys("end", "G"), bubbleskey.WithHelp("G/end", "底部")),
+		Submit:   bubbleskey.NewBinding(bubbleskey.WithKeys("enter"), bubbleskey.WithHelp("enter", "打开")),
+		Back:     bubbleskey.NewBinding(bubbleskey.WithKeys("esc", "q"), bubbleskey.WithHelp("esc/q", "返回")),
+		Help:     bubbleskey.NewBinding(bubbleskey.WithKeys("?", "h"), bubbleskey.WithHelp("?", "帮助")),
+		Quit:     bubbleskey.NewBinding(bubbleskey.WithKeys("ctrl+c"), bubbleskey.WithHelp("ctrl+c", "退出")),
+	}
+}
+
+func (k appKeyMap) ShortHelp() []bubbleskey.Binding {
+	return []bubbleskey.Binding{k.Up, k.Down, k.Submit, k.Back, k.Help}
+}
+
+func (k appKeyMap) FullHelp() [][]bubbleskey.Binding {
+	return [][]bubbleskey.Binding{{k.Up, k.Down, k.PageUp, k.PageDown}, {k.Top, k.Bottom, k.Submit, k.Back}, {k.Help, k.Quit}}
 }
 
 // New 构造 TUI 模型。
 func New(store *panel.Store, st panel.Settings) Model {
-	return Model{Store: store, St: st, width: 80, height: 24}
+	return Model{Store: store, St: st, width: 80, height: 24, help: help.New(), keys: newAppKeyMap()}
 }
 
 // Quit 报告用户是否选择了退出。
@@ -106,6 +147,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		key := msg.String()
+		// Ctrl+C must work in forms and confirmation dialogs as well as pages.
+		if key == "ctrl+c" {
+			m.quit = true
+			return m, tea.Quit
+		}
 		// 表单模式：按键全部交给表单
 		if m.form != nil {
 			if !m.form.update(key) {
@@ -124,27 +170,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.flash = "✗ " + err.Error()
 				} else {
 					m.flash = "✓ 已完成"
+					if m.confirmAction == "apply" {
+						m.actionOut = m.applyLines()
+						m.view = viewApply
+					}
+					if m.view == viewNodes || m.view == viewUsers {
+						m.cursor = min(m.cursor, max(0, m.rowCount()-1))
+					}
 				}
+				m.confirm, m.onYes, m.confirmAction = "", nil, ""
 			case "n", "N", "esc":
 				m.flash = "已取消"
+				m.confirm, m.onYes, m.confirmAction = "", nil, ""
 			}
-			m.confirm, m.onYes = "", nil
+			return m, nil
+		}
+		if m.showHelp {
+			switch key {
+			case "?", "h", "esc", "q":
+				m.showHelp = false
+			}
 			return m, nil
 		}
 		switch key {
-		case "ctrl+c":
-			m.quit = true
-			return m, tea.Quit
 		case "q":
 			if m.view == viewMenu {
 				m.quit = true
 				return m, tea.Quit
 			}
-			m.view = viewMenu
+			if m.view == viewUserDetail {
+				m.view = viewUsers
+			} else {
+				m.view = viewMenu
+			}
 			m.cursor = 0
 			return m, nil
 		case "esc", "backspace":
-			m.view = viewMenu
+			if m.view == viewUserDetail {
+				m.view = viewUsers
+			} else {
+				m.view = viewMenu
+			}
 			m.cursor = 0
 			return m, nil
 		case "r":
@@ -152,6 +218,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash = ""
 			m.qrArt, m.qrShown = "", false
 			m.refreshStatus()
+			return m, nil
+		case "?", "h":
+			m.showHelp = true
 			return m, nil
 		case "up", "k":
 			if m.cursor > 0 {
@@ -162,6 +231,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < m.rowCount()-1 {
 				m.cursor++
 			}
+			return m, nil
+		case "home", "g":
+			m.cursor = 0
+			return m, nil
+		case "end", "G":
+			m.cursor = max(0, m.rowCount()-1)
 			return m, nil
 		case "c":
 			if m.view == viewUserDetail {
@@ -208,6 +283,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		default:
+			// 主菜单支持数字快捷键，减少反复移动光标。
+			if m.view == viewMenu && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+				i := int(key[0] - '1')
+				if i < len(menuItems) {
+					m.cursor = i
+					return m.selectMenu()
+				}
+			}
 		}
 	}
 	return m, nil
@@ -238,8 +322,9 @@ func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 		m.view = viewUsers
 		m.cursor = 0
 	case 3:
-		m.view = viewApply
-		m.actionOut = m.applyLines()
+		m.confirm = "生成配置并重启 xray？（会影响当前连接）"
+		m.confirmAction = "apply"
+		m.onYes = func() error { return nil }
 	case 4:
 		m.view = viewEvents
 		m.cursor = 0
@@ -260,9 +345,12 @@ func (m Model) View() string {
 			"\n\n" + dimStyle.Render("  y 确认 · n 取消") + "\n"
 	}
 	m.refreshStatus()
+	if m.showHelp {
+		return m.header() + "\n\n" + m.helpView() + "\n" + m.footer()
+	}
 	var b strings.Builder
 	b.WriteString(m.header())
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 	switch m.view {
 	case viewMenu:
 		b.WriteString(m.menuView())
@@ -276,6 +364,10 @@ func (m Model) View() string {
 		b.WriteString(m.eventsView())
 	case viewDoctor, viewApply:
 		b.WriteString(m.textView())
+	}
+	if m.flash != "" {
+		b.WriteString("\n\n")
+		b.WriteString(noticeStyle(m.flash))
 	}
 	b.WriteString("\n")
 	b.WriteString(m.footer())
@@ -309,78 +401,132 @@ func (m Model) header() string {
 	line1 := fmt.Sprintf("%s  %s",
 		titleStyle.Render(fmt.Sprintf("%s %s", panel.ProductName, panel.Version)),
 		dimStyle.Render(panel.Home()))
+	status := dot(m.apiKnown && m.apiOK, xray)
 	line2 := strings.Join([]string{
-		dot(m.apiKnown && m.apiOK, xray),
-		fmt.Sprintf("节点 %d/%d", enabled, len(nodes)),
-		fmt.Sprintf("用户 %d", len(users)),
+		status,
+		statStyle.Render(fmt.Sprintf("节点 %d/%d", enabled, len(nodes))),
+		statStyle.Render(fmt.Sprintf("用户 %d", len(users))),
 		dimStyle.Render("分流 " + st.ClashRules),
 		dimStyle.Render("出口 " + st.OutboundDomainStrategy),
-	}, "   ")
+	}, "  ")
 	return line1 + "\n" + line2
 }
 
 func (m Model) menuView() string {
 	var lines []string
+	lines = append(lines, pageStyle.Render("工作台"), dimStyle.Render("选择一个区域开始管理"), "")
 	for i, it := range menuItems {
+		label := fmt.Sprintf("%d  %s", i+1, it)
 		if i == m.cursor {
-			lines = append(lines, selStyle.Render("▸ "+it))
+			lines = append(lines, selectedRowStyle.Render(selStyle.Render("▸ "+label)))
 		} else {
-			lines = append(lines, "  "+it)
+			lines = append(lines, "  "+label)
 		}
 	}
-	if m.flash != "" {
-		lines = append(lines, "", warnStyle.Render(m.flash))
-	}
-	return boxStyle.Width(m.width-4).Render(strings.Join(lines, "\n")) + "\n"
+	return boxStyle.Width(max(24, m.width-4)).Render(strings.Join(lines, "\n")) + "\n"
 }
 
-// table 用 lipgloss 拼对齐表格（列宽自适应内容，够用就不引 bubbles/table）。
-func table(headers []string, rows [][]string) string {
-	widths := make([]int, len(headers))
-	for i, h := range headers {
-		widths[i] = lipgloss.Width(h)
+func noticeStyle(s string) string {
+	if strings.HasPrefix(s, "✗") {
+		return boxStyle.BorderForeground(lipgloss.Color("203")).Render(errStyle.Render(s))
 	}
-	for _, r := range rows {
-		for i, c := range r {
-			if i < len(widths) && lipgloss.Width(c) > widths[i] {
-				widths[i] = lipgloss.Width(c)
-			}
+	if strings.HasPrefix(s, "⚠") {
+		return boxStyle.BorderForeground(lipgloss.Color("214")).Render(warnStyle.Render(s))
+	}
+	return boxStyle.BorderForeground(lipgloss.Color("42")).Render(okStyle.Render(s))
+}
+
+func (m Model) helpView() string {
+	m.help.Width = max(32, m.width-4)
+	rows := []string{pageStyle.Render("快捷键"), m.help.View(m.keys), "", pageStyle.Render("当前页面")}
+	switch m.view {
+	case viewMenu:
+		rows = append(rows, "1-6         直接打开菜单项")
+	case viewNodes:
+		rows = append(rows, "a 新增   e 编辑   d 删除   选择行后操作")
+	case viewUsers:
+		rows = append(rows, "Enter 详情/二维码   a 新增   e 编辑   d 删除")
+	case viewUserDetail:
+		rows = append(rows, "c 切换二维码格式（Clash / sing-box / base64）")
+	case viewEvents:
+		rows = append(rows, "w 设置 webhook   t 发送测试告警")
+	case viewDoctor, viewApply:
+		rows = append(rows, "q / Esc 返回工作台")
+	}
+	return boxStyle.Width(max(32, m.width-4)).Render(strings.Join(rows, "\n"))
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (m Model) renderTable(columns []bubblesTable.Column, rows [][]string) string {
+	converted := make([]bubblesTable.Row, len(rows))
+	for i, row := range rows {
+		converted[i] = bubblesTable.Row(row)
+	}
+	height := max(4, m.height-13)
+	t := bubblesTable.New(
+		bubblesTable.WithColumns(columns),
+		bubblesTable.WithRows(converted),
+		bubblesTable.WithFocused(true),
+		bubblesTable.WithWidth(max(32, m.width-4)),
+		bubblesTable.WithHeight(height),
+	)
+	t.SetCursor(m.cursor)
+	t.SetStyles(bubblesTable.Styles{
+		Header:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Padding(0, 1),
+		Cell:     lipgloss.NewStyle().Padding(0, 1),
+		Selected: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81")).Background(lipgloss.Color("236")).Padding(0, 1),
+	})
+	return t.View()
+}
+
+func nodeColumns(width int) []bubblesTable.Column {
+	if width < 100 {
+		return []bubblesTable.Column{
+			{Title: "tag", Width: 13}, {Title: "协议", Width: 9}, {Title: "传输", Width: 8},
+			{Title: "安全", Width: 8}, {Title: "端口", Width: 6}, {Title: "入口", Width: 14},
+			{Title: "状态", Width: 7}, {Title: "问题", Width: 12},
 		}
 	}
-	pad := func(s string, w int) string {
-		return s + strings.Repeat(" ", w-lipgloss.Width(s))
+	return []bubblesTable.Column{
+		{Title: "tag", Width: 16}, {Title: "协议", Width: 12}, {Title: "传输", Width: 10},
+		{Title: "安全", Width: 10}, {Title: "端口", Width: 7}, {Title: "入口", Width: 24},
+		{Title: "状态", Width: 10}, {Title: "问题", Width: 28},
 	}
-	var b strings.Builder
-	for i, h := range headers {
-		b.WriteString(headerStyle.Render(pad(h, widths[i])))
-		if i < len(headers)-1 {
-			b.WriteString("  ")
+}
+
+func userColumns(width int) []bubblesTable.Column {
+	if width < 100 {
+		return []bubblesTable.Column{
+			{Title: "用户", Width: 12}, {Title: "已用", Width: 10}, {Title: "额度", Width: 16},
+			{Title: "到期", Width: 10}, {Title: "节点", Width: 5}, {Title: "状态", Width: 12},
 		}
 	}
-	b.WriteString("\n")
-	for _, r := range rows {
-		for i := range headers {
-			c := ""
-			if i < len(r) {
-				c = r[i]
-			}
-			b.WriteString(pad(c, widths[i]))
-			if i < len(headers)-1 {
-				b.WriteString("  ")
-			}
-		}
-		b.WriteString("\n")
+	return []bubblesTable.Column{
+		{Title: "用户", Width: 16}, {Title: "已用(上下行合计)", Width: 20}, {Title: "额度", Width: 20},
+		{Title: "到期", Width: 14}, {Title: "节点", Width: 7}, {Title: "状态", Width: 24},
 	}
-	return b.String()
 }
 
 func (m Model) nodesView() string {
 	nodes, _ := m.Store.Nodes(false)
 	rows := [][]string{}
 	for _, n := range nodes {
-		state := okStyle.Render("启用")
+		state := "启用"
 		if n.Enabled == 0 {
-			state = dimStyle.Render("停用")
+			state = "停用"
 		}
 		// 多入口节点只显示第一个，多的用 +N 提示
 		ents := panel.EntriesOf(n, m.St)
@@ -392,20 +538,27 @@ func (m Model) nodesView() string {
 			}
 		}
 		note := ""
+		tag := n.Tag
 		if probs := panel.NodeProblems(n); len(probs) > 0 {
-			note = errStyle.Render("⚠ " + probs[0])
+			tag += " ⚠"
+			// Keep a compact warning marker visible even when the table truncates
+			// the full diagnostic on a narrow SSH terminal.
+			note = "⚠ " + probs[0]
+			if len(note) > 12 {
+				note = "⚠ " + probs[0][:min(len(probs[0]), 9)]
+			}
 		}
 		rows = append(rows, []string{
-			n.Tag, n.Proto, n.Net, n.Security,
+			tag, n.Proto, n.Net, n.Security,
 			fmt.Sprintf("%d", n.Port),
 			fmt.Sprintf("%s:%d%s", entry, port, extra),
 			state, note,
 		})
 	}
 	head := fmt.Sprintf("节点 %d 个", len(nodes))
-	return headerStyle.Render(head) + "\n\n" +
-		table([]string{"tag", "协议", "传输", "安全", "端口", "入口", "状态", "问题"}, rows) +
-		"\n" + dimStyle.Render("  a 新增 · e 启用/停用 · d 删除 · r 刷新 · Esc 返回")
+	return pageStyle.Render(head) + "\n" +
+		m.renderTable(nodeColumns(m.width), rows) +
+		"\n" + dimStyle.Render("  ↑↓/jk 选择 · a 新增 · e 编辑 · d 删除 · Esc 返回")
 }
 
 func (m Model) usersView() string {
@@ -419,11 +572,11 @@ func (m Model) usersView() string {
 			q = fmt.Sprintf("%s (%.0f%%)", panel.HumanBytes(quota),
 				float64(used)/float64(quota)*100)
 		}
-		state := okStyle.Render("启用")
+		state := "启用"
 		if u.Enable == 0 {
-			state = errStyle.Render("停用")
+			state = "停用"
 			if u.DisabledReason != "" {
-				state += dimStyle.Render(" " + u.DisabledReason)
+				state += " " + u.DisabledReason
 			}
 		}
 		nodes, _ := m.Store.NodesForUser(u, true)
@@ -436,31 +589,33 @@ func (m Model) usersView() string {
 			fmt.Sprintf("%d", len(nodes)), state,
 		})
 	}
-	return headerStyle.Render(fmt.Sprintf("用户 %d 个", len(users))) + "\n\n" +
-		table([]string{"用户", "已用(上下行合计)", "额度", "到期", "节点", "状态"}, rows)
+	return pageStyle.Render(fmt.Sprintf("用户 %d 个", len(users))) + "\n" +
+		m.renderTable(userColumns(m.width), rows) +
+		"\n" + dimStyle.Render("  ↑↓/jk 选择 · Enter 详情 · a 新增 · e 编辑 · d 删除 · Esc 返回")
 }
 
 func (m Model) textView() string {
 	if len(m.actionOut) == 0 {
 		return dimStyle.Render("(无输出)")
 	}
-	return strings.Join(m.actionOut, "\n")
+	return boxStyle.Width(max(24, m.width-4)).Render(strings.Join(m.actionOut, "\n"))
 }
 
 func (m Model) footer() string {
-	hint := "↑↓ 选择 · Enter 确认 · q 退出 · r 刷新"
+	hint := m.help.View(m.keys)
 	switch m.view {
 	case viewNodes:
-		hint = "a 新增 · e 启停/编辑 · d 删除 · r 刷新 · Esc 返回"
+		hint += "  ·  a 新增  ·  e 编辑  ·  d 删除  ·  r 刷新"
 	case viewUsers:
-		hint = "Enter 详情与二维码 · a 新增 · e 编辑 · d 删除 · Esc 返回"
+		hint += "  ·  Enter 详情  ·  a 新增  ·  e 编辑  ·  d 删除  ·  r 刷新"
 	case viewUserDetail:
-		hint = "c 切换二维码格式 · r 刷新 · Esc 返回"
+		hint += "  ·  c 切换二维码  ·  r 刷新"
 	case viewEvents:
-		hint = "w 设置 webhook · t 发测试 · r 刷新 · Esc 返回"
+		hint += "  ·  w webhook  ·  t 测试告警  ·  r 刷新"
 	case viewMenu:
+		hint += "  ·  1-6 快捷打开"
 	default:
-		hint = "q/Esc 返回 · r 刷新"
+		hint += "  ·  r 刷新"
 	}
 	return dimStyle.Render(hint)
 }

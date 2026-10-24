@@ -86,6 +86,12 @@ func SubURLFor(st panel.Settings, token, suffix string) string {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The panel is frequently exposed behind a reverse proxy. These headers are
+	// safe defaults for the browser UI and do not rely on forwarded headers.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
 	// /sub/ 交给订阅服务（同一进程、同一端口）
 	if strings.HasPrefix(r.URL.Path, "/sub/") {
 		if s.Sub == nil {
@@ -212,5 +218,14 @@ func (s *Server) Close() error {
 
 // ListenAndServe 在 addr 上提供服务。
 func (s *Server) ListenAndServe(addr string) error {
-	return http.ListenAndServe(addr, s)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
+	return srv.ListenAndServe()
 }

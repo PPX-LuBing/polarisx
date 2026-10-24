@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -14,6 +16,7 @@ import (
 type form struct {
 	title  string
 	fields []field
+	inputs []textinput.Model
 	cur    int
 	err    string
 	// doneMsg 是提交成功后要显示在状态行的话（值接收者下直接改 Model 会丢）
@@ -34,7 +37,22 @@ type field struct {
 
 func newForm(title string, fields []field, hint string,
 	done func([]string) (bool, string, error)) *form {
-	return &form{title: title, fields: fields, hint: hint, done: done}
+	inputs := make([]textinput.Model, len(fields))
+	for i, fd := range fields {
+		input := textinput.New()
+		input.Prompt = ""
+		input.Placeholder = fd.hint
+		input.Width = 48
+		input.SetValue(fd.value)
+		input.PromptStyle = selStyle
+		input.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
+		input.PlaceholderStyle = dimStyle
+		inputs[i] = input
+	}
+	if len(inputs) > 0 {
+		inputs[0].Focus()
+	}
+	return &form{title: title, fields: fields, inputs: inputs, hint: hint, done: done}
 }
 
 // update 处理一个按键，返回是否还留在表单里。
@@ -44,10 +62,13 @@ func (f *form) update(key string) bool {
 		return false
 	case "up", "shift+tab":
 		if f.cur > 0 {
+			f.inputs[f.cur].Blur()
 			f.cur--
+			f.inputs[f.cur].Focus()
 		}
 	case "down", "tab", "enter":
 		if key == "enter" && f.cur == len(f.fields)-1 {
+			f.syncValue()
 			vals := make([]string, len(f.fields))
 			for i, fd := range f.fields {
 				vals[i] = strings.TrimSpace(fd.value)
@@ -61,13 +82,15 @@ func (f *form) update(key string) bool {
 			return keep
 		}
 		if f.cur < len(f.fields)-1 {
+			f.inputs[f.cur].Blur()
 			f.cur++
+			f.inputs[f.cur].Focus()
 		}
 	case "backspace":
-		v := f.fields[f.cur].value
-		if v != "" {
-			f.fields[f.cur].value = v[:len(v)-1]
-		}
+		f.updateInput(key)
+	case "ctrl+u":
+		// 清空当前字段，编辑长地址/备注时比连续退格更快。
+		f.inputs[f.cur].SetValue("")
 	case "left", "right":
 		fd := &f.fields[f.cur]
 		if len(fd.pick) > 0 {
@@ -84,28 +107,61 @@ func (f *form) update(key string) bool {
 				idx = (idx + 1) % len(fd.pick)
 			}
 			fd.value = fd.pick[idx]
+			f.inputs[f.cur].SetValue(fd.value)
+		} else {
+			f.updateInput(key)
 		}
 	default:
-		// 可打印字符
-		if len(key) == 1 && key >= " " {
-			f.fields[f.cur].value += key
+		f.updateInput(key)
+	}
+	f.syncValue()
+	return true
+}
+
+func (f *form) updateInput(s string) {
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	switch s {
+	case "backspace":
+		msg = tea.KeyMsg{Type: tea.KeyBackspace}
+	case "delete":
+		msg = tea.KeyMsg{Type: tea.KeyDelete}
+	case "left":
+		msg = tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		msg = tea.KeyMsg{Type: tea.KeyRight}
+	case "home":
+		msg = tea.KeyMsg{Type: tea.KeyHome}
+	case "end":
+		msg = tea.KeyMsg{Type: tea.KeyEnd}
+	}
+	next, _ := f.inputs[f.cur].Update(msg)
+	f.inputs[f.cur] = next
+}
+
+func (f *form) syncValue() {
+	for i := range f.fields {
+		if i < len(f.inputs) && len(f.fields[i].pick) == 0 {
+			f.fields[i].value = f.inputs[i].Value()
 		}
 	}
-	return true
 }
 
 func (f *form) view(width int) string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render(f.title) + "\n\n")
+	b.WriteString(pageStyle.Render("编辑器") + "  " + headerStyle.Render(f.title) + "\n")
+	b.WriteString(dimStyle.Render("  带 * 的字段需要填写") + "\n\n")
 	for i, fd := range f.fields {
 		label := fmt.Sprintf("%-14s", fd.label)
 		val := fd.value
+		if i == f.cur && len(fd.pick) == 0 {
+			val = f.inputs[i].View()
+		}
 		if val == "" {
 			val = dimStyle.Render("(" + fd.hint + ")")
 		}
 		line := "  " + label + " " + val
 		if i == f.cur {
-			line = selStyle.Render("▸ " + label + " " + val)
+			line = selectedRowStyle.Render(selStyle.Render("▸ " + label + " " + val))
 		}
 		b.WriteString(line + "\n")
 	}
@@ -115,6 +171,7 @@ func (f *form) view(width int) string {
 	if f.hint != "" {
 		b.WriteString("\n" + dimStyle.Render("  "+f.hint) + "\n")
 	}
-	b.WriteString("\n" + dimStyle.Render("  ↑↓ 切换字段 · ←→ 选枚举 · 回车提交 · Esc 取消") + "\n")
-	return lipgloss.NewStyle().Width(width - 4).Render(b.String())
+	b.WriteString("\n" + dimStyle.Render("  ↑↓/Tab 切换 · ←→ 选择 · Ctrl+U 清空 · Enter 提交 · Esc 取消") + "\n")
+	inner := max(24, width-6)
+	return boxStyle.Width(inner).Render(b.String())
 }

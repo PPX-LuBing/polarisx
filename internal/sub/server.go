@@ -35,7 +35,15 @@ func (s *Server) Close() error { return s.Store.Close() }
 // ListenAndServe 在 addr 上提供服务（addr 形如 0.0.0.0:8080）。
 func (s *Server) ListenAndServe(addr string) error {
 	slog.Info("订阅服务启动", "addr", addr, "url", "/sub/<token>", "clash", "/sub/<token>/clash")
-	srv := &http.Server{Addr: addr, Handler: s}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 	return srv.ListenAndServe()
 }
 
