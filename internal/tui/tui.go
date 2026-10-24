@@ -109,6 +109,28 @@ func newAppKeyMap() appKeyMap {
 	}
 }
 
+// newHelpModel uses explicit colors instead of bubbles/help's adaptive dark
+// palette. The latter is too low contrast on the dark SSH terminals this TUI
+// is commonly used from.
+func newHelpModel() help.Model {
+	h := help.New()
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	separatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	h.Styles = help.Styles{
+		Ellipsis:       separatorStyle,
+		ShortKey:       keyStyle,
+		ShortDesc:      descStyle,
+		ShortSeparator: separatorStyle,
+		FullKey:        keyStyle,
+		FullDesc:       descStyle,
+		FullSeparator:  separatorStyle,
+	}
+	h.ShortSeparator = "  •  "
+	h.FullSeparator = "    "
+	return h
+}
+
 func (k appKeyMap) ShortHelp() []bubbleskey.Binding {
 	return []bubbleskey.Binding{k.Up, k.Down, k.Submit, k.Back, k.Help}
 }
@@ -119,7 +141,7 @@ func (k appKeyMap) FullHelp() [][]bubbleskey.Binding {
 
 // New 构造 TUI 模型。
 func New(store *panel.Store, st panel.Settings) Model {
-	return Model{Store: store, St: st, width: 80, height: 24, help: help.New(), keys: newAppKeyMap()}
+	return Model{Store: store, St: st, width: 80, height: 24, help: newHelpModel(), keys: newAppKeyMap()}
 }
 
 // Quit 报告用户是否选择了退出。
@@ -437,8 +459,8 @@ func noticeStyle(s string) string {
 }
 
 func (m Model) helpView() string {
-	m.help.Width = max(32, m.width-4)
-	rows := []string{pageStyle.Render("快捷键"), m.help.View(m.keys), "", pageStyle.Render("当前页面")}
+	h := m.helpModel()
+	rows := []string{pageStyle.Render("快捷键"), h.View(m.keys), "", pageStyle.Render("当前页面")}
 	switch m.view {
 	case viewMenu:
 		rows = append(rows, "1-6         直接打开菜单项")
@@ -454,6 +476,12 @@ func (m Model) helpView() string {
 		rows = append(rows, "q / Esc 返回工作台")
 	}
 	return boxStyle.Width(max(32, m.width-4)).Render(strings.Join(rows, "\n"))
+}
+
+func (m Model) helpModel() help.Model {
+	h := m.help
+	h.Width = max(24, m.width-4)
+	return h
 }
 
 func max(a, b int) int {
@@ -494,6 +522,15 @@ func (m Model) renderTable(columns []bubblesTable.Column, rows [][]string) strin
 
 func nodeColumns(width int) []bubblesTable.Column {
 	if width < 100 {
+		// Keep the warning marker in the tag column and hide lower-priority
+		// columns on narrow SSH windows instead of clipping the whole table.
+		return []bubblesTable.Column{
+			{Title: "tag", Width: 11}, {Title: "协议", Width: 6}, {Title: "传输", Width: 0},
+			{Title: "安全", Width: 0}, {Title: "端口", Width: 5}, {Title: "入口", Width: 10},
+			{Title: "状态", Width: 6}, {Title: "问题", Width: 0},
+		}
+	}
+	if width < 140 {
 		return []bubblesTable.Column{
 			{Title: "tag", Width: 13}, {Title: "协议", Width: 9}, {Title: "传输", Width: 8},
 			{Title: "安全", Width: 8}, {Title: "端口", Width: 6}, {Title: "入口", Width: 14},
@@ -509,6 +546,12 @@ func nodeColumns(width int) []bubblesTable.Column {
 
 func userColumns(width int) []bubblesTable.Column {
 	if width < 100 {
+		return []bubblesTable.Column{
+			{Title: "用户", Width: 11}, {Title: "已用", Width: 9}, {Title: "额度", Width: 14},
+			{Title: "到期", Width: 10}, {Title: "节点", Width: 5}, {Title: "状态", Width: 10},
+		}
+	}
+	if width < 140 {
 		return []bubblesTable.Column{
 			{Title: "用户", Width: 12}, {Title: "已用", Width: 10}, {Title: "额度", Width: 16},
 			{Title: "到期", Width: 10}, {Title: "节点", Width: 5}, {Title: "状态", Width: 12},
@@ -540,7 +583,9 @@ func (m Model) nodesView() string {
 		note := ""
 		tag := n.Tag
 		if probs := panel.NodeProblems(n); len(probs) > 0 {
-			tag += " ⚠"
+			// Prefix the marker so it survives bubbles/table truncation on
+			// narrow terminals; appending it would truncate the useful signal.
+			tag = "⚠ " + tag
 			// Keep a compact warning marker visible even when the table truncates
 			// the full diagnostic on a narrow SSH terminal.
 			note = "⚠ " + probs[0]
@@ -602,7 +647,7 @@ func (m Model) textView() string {
 }
 
 func (m Model) footer() string {
-	hint := m.help.View(m.keys)
+	hint := m.helpModel().View(m.keys)
 	switch m.view {
 	case viewNodes:
 		hint += "  ·  a 新增  ·  e 编辑  ·  d 删除  ·  r 刷新"
