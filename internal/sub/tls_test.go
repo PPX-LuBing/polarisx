@@ -1,9 +1,16 @@
 package sub
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -165,14 +172,12 @@ func TestServeFilesTLS(t *testing.T) {
 	}
 	token := users[0].Token
 
-	certAbs, _ := filepath.Abs(filepath.Join(root, "certs", "test.crt"))
-	keyAbs, _ := filepath.Abs(filepath.Join(root, "certs", "test.key"))
-	if _, err := os.Stat(certAbs); err != nil {
-		t.Skipf("没有测试证书: %v", err)
-	}
+	// 证书自己生成：仓库里的 test.key 被 .gitignore 排除（私钥不入库），
+	// CI 上并不存在——依赖它会让测试"本地过、CI 挂"。
+	certFile, keyFile := selfSignedCert(t)
 
 	st := panel.Defaults()
-	st.SubTLS, st.SubTLSCert, st.SubTLSKey = "files", certAbs, keyAbs
+	st.SubTLS, st.SubTLSCert, st.SubTLSKey = "files", certFile, keyFile
 	st.SubTLSListen = freeAddr(t)
 
 	srv := &Server{Store: store}
@@ -227,4 +232,41 @@ func freeAddr(t *testing.T) string {
 	addr := l.Addr().String()
 	l.Close()
 	return addr
+}
+
+// selfSignedCert 生成一对自签证书（写进临时目录），让 files 模式能真跑起来。
+func selfSignedCert(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certFile := filepath.Join(dir, "t.crt")
+	keyFile := filepath.Join(dir, "t.key")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return certFile, keyFile
 }
