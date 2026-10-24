@@ -254,6 +254,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 			return m, nil
+		case "pgup", "b":
+			m.cursor = max(0, m.cursor-max(1, m.height-13))
+			return m, nil
+		case "pgdown", "f", " ":
+			m.cursor = min(max(0, m.rowCount()-1), m.cursor+max(1, m.height-13))
+			return m, nil
 		case "home", "g":
 			m.cursor = 0
 			return m, nil

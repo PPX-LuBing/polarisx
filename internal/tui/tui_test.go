@@ -48,11 +48,29 @@ func key(m Model, s string) Model {
 		msg = tea.KeyMsg{Type: tea.KeyDown}
 	case "up":
 		msg = tea.KeyMsg{Type: tea.KeyUp}
+	case "pgup":
+		msg = tea.KeyMsg{Type: tea.KeyPgUp}
+	case "pgdown":
+		msg = tea.KeyMsg{Type: tea.KeyPgDown}
 	default:
 		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
 	next, _ := m.Update(msg)
 	return next.(Model)
+}
+
+func TestPageNavigation(t *testing.T) {
+	m := newTestModel(t)
+	m = key(m, "down") // 节点管理
+	m = key(m, "enter")
+	m = key(m, "pgdown")
+	if m.cursor == 0 {
+		t.Fatal("pgdown 应跳过当前表格页")
+	}
+	m = key(m, "pgup")
+	if m.cursor != 0 {
+		t.Fatalf("pgup 应返回页首，实际光标 %d", m.cursor)
+	}
 }
 
 func TestMainMenuView(t *testing.T) {
