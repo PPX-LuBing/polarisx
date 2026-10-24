@@ -15,7 +15,10 @@ import (
 )
 
 // Version 与 Python 版对齐；Go 版接管后按自己的节奏走。
-const Version = "1.5.0"
+// Version 是面板版本。声明成 var 而不是 const，是为了让发布流程能用
+// `-ldflags "-X .../internal/panel.Version=v1.5.0"` 把 git tag 注入进来
+// （const 无法被 ldflags 覆盖）。
+var Version = "1.5.0"
 
 // SubTitleDefault 订阅标题默认模板；{cc}/{asn} 会在生成时替换。
 const SubTitleDefault = "定制·{cc}·{asn}"

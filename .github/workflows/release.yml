@@ -1,0 +1,34 @@
+name: release
+
+# 打 tag（v*）即发布：交叉编译多平台二进制 + 校验和，附到 GitHub Release。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      # 发布前先跑测试：宁可不出包，也不要出一个测试都没过的包
+      - name: 测试
+        run: go test ./...
+
+      - name: 交叉编译（版本号取 tag）
+        run: make dist VERSION="${GITHUB_REF_NAME}"
+
+      - name: 发布到 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "PolarisX ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/polarisx-* dist/SHA256SUMS

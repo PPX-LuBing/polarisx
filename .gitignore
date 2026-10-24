@@ -12,3 +12,6 @@ testdata/**/*.db-wal
 testdata/**/*.db-shm
 testdata/**/*.json.bak
 testdata/fixture-quota/xray-config.json
+
+# 交叉编译产物
+dist/
