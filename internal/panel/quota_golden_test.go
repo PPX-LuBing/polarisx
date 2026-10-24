@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// TestQuotaParity 比对额度/重置/采集：纯函数直接比，状态型（重置、采集）在
+// TestQuotaGolden 比对额度/重置/采集：纯函数直接比，状态型（重置、采集）在
 // 夹具 DB 的副本上跑一遍再比用户表——这是阶段④的验收标准。
-func TestQuotaParity(t *testing.T) {
+func TestQuotaGolden(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
-	raw, err := os.ReadFile(filepath.Join(root, "parity", "quota.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "golden", "quota.json"))
 	if err != nil {
-		t.Skipf("没有额度夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有额度夹具（testdata fixtures are frozen）: %v", err)
 	}
 	var want struct {
 		Today           string            `json:"today"`
@@ -134,7 +134,7 @@ func TestQuotaParity(t *testing.T) {
 			gotNorm := normalize(t, mapToAny(got))
 			expNorm := normalize(t, expAny)
 			if !jsonEqual(gotNorm, expNorm) {
-				t.Errorf("%s:\n  go   : %v\n  python: %v", name, got, expAny)
+				t.Errorf("%s:\n  go   : %v\n  golden: %v", name, got, expAny)
 			}
 		}
 	})
@@ -174,10 +174,10 @@ func TestQuotaParity(t *testing.T) {
 			gU, gD, gT, gE := parseUserinfo(t, got)
 			wU, wD, wT, wE := parseUserinfo(t, exp)
 			if gU != wU || gD != wD || gT != wT {
-				t.Errorf("%s 用量字段不一致:\n  go   : %s\n  python: %s", name, got, exp)
+				t.Errorf("%s 用量字段不一致:\n  go   : %s\n  golden: %s", name, got, exp)
 			}
 			if (gE == 0) != (wE == 0) {
-				t.Errorf("%s expire 是否为空不一致:\n  go   : %s\n  python: %s", name, got, exp)
+				t.Errorf("%s expire 是否为空不一致:\n  go   : %s\n  golden: %s", name, got, exp)
 			} else if gE != 0 {
 				gd := time.Unix(gE, 0).In(time.Local).Format("2006-01-02 15:04:05")
 				wd := time.Unix(wE, 0).In(fixLoc).Format("2006-01-02 15:04:05")
@@ -230,12 +230,12 @@ func TestQuotaParity(t *testing.T) {
 			"disabled": disabledAny(rep), "warned": warnedAny(rep),
 		})
 		expRep := normalize(t, want.CollectReport)
-		// Python 的 report 还带 errors 字段
+		// golden 的 report 还带 errors 字段
 		if m, ok := expRep.(map[string]any); ok {
 			delete(m, "errors")
 		}
 		if !jsonEqual(gotRep, expRep) {
-			t.Errorf("采集报告不一致:\n  go   : %s\n  python: %s", mustJSON(gotRep), mustJSON(expRep))
+			t.Errorf("采集报告不一致:\n  go   : %s\n  golden: %s", mustJSON(gotRep), mustJSON(expRep))
 		}
 		if d := usersDiff(t, store, want.AfterCollect); d != "" {
 			t.Errorf("采集后用户表不一致: %s", d)
@@ -299,7 +299,7 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-// usersDiff 把 Go 侧用户表与 Python 期望逐字段比对。
+// usersDiff 把 Go 侧用户表与 golden 期望逐字段比对。
 func usersDiff(t *testing.T, store *Store, want []any) string {
 	t.Helper()
 	rows, err := store.DB().Query("SELECT id, name, uuid, password, token, quota_gb, used_up," +

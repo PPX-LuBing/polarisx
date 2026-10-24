@@ -10,21 +10,21 @@ import (
 	"testing"
 )
 
-// TestParityWithPython 是这次迁移的验收标准：
-// 同一份 panel.db + settings，Go 版生成的 xray 配置必须与 Python 版语义一致。
-// 期望值由 tools/mkfixture.py 用 Python 版生成，提交在 testdata/parity/。
-func TestParityWithPython(t *testing.T) {
+// TestGoldenConfig 是这次迁移的验收标准：
+// 同一份 panel.db + settings，Go 版生成的 xray 配置必须与 golden 基线语义一致。
+// 期望值锁定当前 Go 实现，存放在 testdata/golden/，提交在 testdata/golden/。
+func TestGoldenConfig(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
 	fixtureDB := filepath.Join(root, "fixture", "panel.db")
 	if _, err := os.Stat(fixtureDB); err != nil {
-		t.Skipf("没有夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有夹具（testdata fixtures are frozen）: %v", err)
 	}
 	// Home() 决定 xray-error.log 的路径，必须与生成夹具时一致
 	fixtureAbs, _ := filepath.Abs(filepath.Join(root, "fixture"))
 	t.Setenv("POLARISX_HOME", fixtureAbs)
 	// 夹具里存的是 {REPO} 占位符；生成机器上的仓库根从 subscriptions.json 读
 	genRepo := ""
-	if b, err := os.ReadFile(filepath.Join(root, "parity", "subscriptions.json")); err == nil {
+	if b, err := os.ReadFile(filepath.Join(root, "golden", "subscriptions.json")); err == nil {
 		var meta struct {
 			RepoRoot string `json:"repo_root"`
 		}
@@ -34,7 +34,7 @@ func TestParityWithPython(t *testing.T) {
 	}
 	repoAbs, _ := filepath.Abs(filepath.Join(root, ".."))
 
-	variants, err := filepath.Glob(filepath.Join(root, "parity", "*.json"))
+	variants, err := filepath.Glob(filepath.Join(root, "golden", "*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +45,14 @@ func TestParityWithPython(t *testing.T) {
 		}
 		// 只有带同名 .settings.json 的才是配置变体（subscriptions.json 是订阅夹具）
 		name := strings.TrimSuffix(filepath.Base(v), ".json")
-		if _, err := os.Stat(filepath.Join(root, "parity", name+".settings.json")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "golden", name+".settings.json")); err != nil {
 			continue
 		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		t.Fatal("testdata/parity 里没有期望配置")
+		t.Fatal("testdata/golden 里没有期望配置")
 	}
 
 	for _, name := range names {
@@ -62,7 +62,7 @@ func TestParityWithPython(t *testing.T) {
 			defer store.Close()
 
 			st := Defaults()
-			sb, err := os.ReadFile(filepath.Join(root, "parity", name+".settings.json"))
+			sb, err := os.ReadFile(filepath.Join(root, "golden", name+".settings.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func TestParityWithPython(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			wantRaw, err := os.ReadFile(filepath.Join(root, "parity", name+".json"))
+			wantRaw, err := os.ReadFile(filepath.Join(root, "golden", name+".json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -86,7 +86,7 @@ func TestParityWithPython(t *testing.T) {
 			// 两边都过一遍 JSON 归一化（数字统一成 float64，键序无关）；
 			// HOME 路径归一化成 {HOME}（夹具不能带生成机器的绝对路径）
 			if diff, ok := equalWithHome(t, got, want, repoAbs, genRepo); !ok {
-				t.Errorf("配置与 Python 版不一致:\n%s", diff)
+				t.Errorf("配置与 golden 基线不一致:\n%s", diff)
 			}
 		})
 	}
@@ -102,7 +102,7 @@ func openFixture(t *testing.T, root string) *Store {
 	}
 	src, err := os.ReadFile(filepath.Join(root, "fixture", "panel.db"))
 	if err != nil {
-		t.Skipf("没有夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有夹具（testdata fixtures are frozen）: %v", err)
 	}
 	db := filepath.Join(t.TempDir(), "panel.db")
 	if err := os.WriteFile(db, src, 0o600); err != nil {
@@ -149,7 +149,7 @@ func equalWithHome(t *testing.T, got, want any, repos ...string) (string, bool) 
 			b = wl[i]
 		}
 		if a != b {
-			return fmt.Sprintf("第 %d 行:\n  go   : %s\n  python: %s", i+1, a, b), false
+			return fmt.Sprintf("第 %d 行:\n  go   : %s\n  golden: %s", i+1, a, b), false
 		}
 	}
 	return "行数不同", false
@@ -189,7 +189,7 @@ func firstDiff(t *testing.T, got, want any) string {
 			b = wl[i]
 		}
 		if a != b {
-			return fmt.Sprintf("第 %d 行:\n  go   : %s\n  python: %s", i+1, a, b)
+			return fmt.Sprintf("第 %d 行:\n  go   : %s\n  golden: %s", i+1, a, b)
 		}
 	}
 	return "（无差异？）"

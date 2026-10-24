@@ -15,14 +15,14 @@ import (
 	"github.com/PPX-LuBing/polarisx/internal/panel"
 )
 
-// TestHTTPParity 起 Go 版订阅服务，跑与 Python 版完全相同的请求矩阵并逐项比对。
-// 期望值由 tools/mkfixture.py 真的启动 Python 版服务录制（testdata/parity/subscriptions.json）。
+// TestHTTPGolden 起 Go 版订阅服务，跑与 golden 基线完全相同的请求矩阵并逐项比对。
+// 期望值锁定当前 Go 实现，存放在 testdata/golden/（testdata/golden/subscriptions.json）。
 // 唯一允许的差异：/ 与 /health 之外的正文里没有产品名；根路径的产品名做了归一化。
-func TestHTTPParity(t *testing.T) {
+func TestHTTPGolden(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
-	raw, err := os.ReadFile(filepath.Join(root, "parity", "subscriptions.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "golden", "subscriptions.json"))
 	if err != nil {
-		t.Skipf("没有订阅夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有订阅夹具（testdata fixtures are frozen）: %v", err)
 	}
 	var want struct {
 		HTTP map[string]struct {
@@ -122,7 +122,7 @@ func TestHTTPParity(t *testing.T) {
 			// JSON 正文按语义比（键序无关），其余逐字节比
 			if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
 				if !jsonSemanticEqual(t, got, wantBody) {
-					t.Errorf("JSON 正文语义不一致:\n  go   : %s\n  python: %s", truncate(got), truncate(wantBody))
+					t.Errorf("JSON 正文语义不一致:\n  go   : %s\n  golden: %s", truncate(got), truncate(wantBody))
 				}
 				return
 			}
@@ -181,5 +181,5 @@ func bodyDiff(got, want string) string {
 	if wi > len(want) {
 		wi = len(want)
 	}
-	return fmt.Sprintf("第 %d 字节起不同\n  go   : …%s\n  python: …%s", i, got[lo:hi], want[lo:wi])
+	return fmt.Sprintf("第 %d 字节起不同\n  go   : …%s\n  golden: …%s", i, got[lo:hi], want[lo:wi])
 }

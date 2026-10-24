@@ -93,8 +93,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
-              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
+              "certificateFile": "{REPO}/testdata/certs/test.crt",
+              "keyFile": "{REPO}/testdata/certs/test.key"
             }
           ],
           "minVersion": "1.2",
@@ -145,8 +145,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
-              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
+              "certificateFile": "{REPO}/testdata/certs/test.crt",
+              "keyFile": "{REPO}/testdata/certs/test.key"
             }
           ],
           "minVersion": "1.2",
@@ -195,8 +195,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
-              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
+              "certificateFile": "{REPO}/testdata/certs/test.crt",
+              "keyFile": "{REPO}/testdata/certs/test.key"
             }
           ],
           "minVersion": "1.2",
@@ -264,8 +264,8 @@
           ],
           "certificates": [
             {
-              "certificateFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.crt",
-              "keyFile": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/certs/test.key"
+              "certificateFile": "{REPO}/testdata/certs/test.crt",
+              "keyFile": "{REPO}/testdata/certs/test.key"
             }
           ],
           "serverNames": [
@@ -346,7 +346,7 @@
   ],
   "log": {
     "access": "none",
-    "error": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/xray-error.log",
+    "error": "{REPO}/testdata/fixture/xray-error.log",
     "loglevel": "warning"
   },
   "outbounds": [
@@ -355,7 +355,7 @@
       "settings": {},
       "streamSettings": {
         "sockopt": {
-          "domainStrategy": "UseIPv4"
+          "domainStrategy": "UseIPv6"
         }
       },
       "tag": "direct"
@@ -363,18 +363,6 @@
     {
       "protocol": "blackhole",
       "tag": "block"
-    },
-    {
-      "protocol": "socks",
-      "settings": {
-        "servers": [
-          {
-            "address": "127.0.0.1",
-            "port": 40000
-          }
-        ]
-      },
-      "tag": "warp"
     }
   ],
   "policy": {
@@ -394,18 +382,6 @@
   "routing": {
     "domainStrategy": "AsIs",
     "rules": [
-      {
-        "domain": [
-          "domain:openai.com",
-          "domain:chatgpt.com",
-          "domain:oaistatic.com",
-          "domain:oaiusercontent.com",
-          "domain:sora.com",
-          "domain:livekit.cloud"
-        ],
-        "outboundTag": "warp",
-        "type": "field"
-      },
       {
         "ip": [
           "geoip:private"

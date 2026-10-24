@@ -9,7 +9,7 @@
   "clash_rules": "myclash",
   "cloudflared_bin": "",
   "default_quota_gb": 100,
-  "direct_ports": "22, 2222",
+  "direct_ports": "22",
   "fail2ban_kick": true,
   "log_file": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/polarisx.log",
   "node_name_with_user": false,

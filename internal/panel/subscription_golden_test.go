@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// TestSubscriptionParity 用同一份夹具比对分享链接、订阅载荷、标题与证书指纹。
-// 期望值由 tools/mkfixture.py 用 Python 版生成。
-func TestSubscriptionParity(t *testing.T) {
+// TestSubscriptionGolden 用同一份夹具比对分享链接、订阅载荷、标题与证书指纹。
+// 期望值锁定当前 Go 实现，存放在 testdata/golden/。
+func TestSubscriptionGolden(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
-	raw, err := os.ReadFile(filepath.Join(root, "parity", "subscriptions.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "golden", "subscriptions.json"))
 	if err != nil {
-		t.Skipf("没有订阅夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有订阅夹具（testdata fixtures are frozen）: %v", err)
 	}
 	var want struct {
 		Links    map[string][]string `json:"links"`
@@ -92,7 +92,7 @@ func TestSubscriptionParity(t *testing.T) {
 				s = Defaults()
 				s.ServerCC, s.ServerASN, s.ServerOrg = "US", "AS174", "Cogent"
 			} else {
-				sb, err := os.ReadFile(filepath.Join(root, "parity", name+".settings.json"))
+				sb, err := os.ReadFile(filepath.Join(root, "golden", name+".settings.json"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -105,7 +105,7 @@ func TestSubscriptionParity(t *testing.T) {
 				t.Errorf("%s 标题: %q，期望 %q", name, got, exp.Title)
 			}
 			if got := ContentDisposition(ExpandTitle(s), ".yaml"); got != exp.Disposition {
-				t.Errorf("%s 下载头:\n  go   : %s\n  python: %s", name, got, exp.Disposition)
+				t.Errorf("%s 下载头:\n  go   : %s\n  golden: %s", name, got, exp.Disposition)
 			}
 		}
 	})
@@ -159,5 +159,5 @@ func diffStrings(a, b string) string {
 	if hi2 > len(b) {
 		hi2 = len(b)
 	}
-	return fmt.Sprintf("第 %d 字节起不同\n  go   : …%s\n  python: …%s", i, a[lo:hi], b[lo:hi2])
+	return fmt.Sprintf("第 %d 字节起不同\n  go   : …%s\n  golden: …%s", i, a[lo:hi], b[lo:hi2])
 }

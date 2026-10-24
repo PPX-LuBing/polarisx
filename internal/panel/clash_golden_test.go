@@ -9,14 +9,13 @@ import (
 	"time"
 )
 
-// TestClashParity 比对 Clash/mihomo 订阅全文（3 个用户 × 6 个预设 = 18 份）。
-// Fixtures were recorded by an earlier generator; normalize only its product
-// prefix before comparing the generated PolarisX subscription.
-func TestClashParity(t *testing.T) {
+// TestClashGolden 比对 Clash/mihomo 订阅全文（3 个用户 × 6 个预设 = 18 份）。
+// Golden files lock the current Go output; update them explicitly with UPDATE_GOLDEN=1.
+func TestClashGolden(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
-	raw, err := os.ReadFile(filepath.Join(root, "parity", "subscriptions.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "golden", "subscriptions.json"))
 	if err != nil {
-		t.Skipf("没有订阅夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有订阅夹具（testdata fixtures are frozen）: %v", err)
 	}
 	var want struct {
 		Clash    map[string]string `json:"clash"`
@@ -94,7 +93,7 @@ func clashDiff(got, want string) string {
 			b = wl[i]
 		}
 		if a != b {
-			return "第 " + itoa(i+1) + " 行不同:\n  go   : " + a + "\n  python: " + b
+			return "第 " + itoa(i+1) + " 行不同:\n  go   : " + a + "\n  golden: " + b
 		}
 	}
 	return "行数不同"

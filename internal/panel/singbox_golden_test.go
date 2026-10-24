@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// TestSingboxParity 比对 sing-box 订阅：JSON 按语义比（键序无关），
+// TestSingboxGolden 比对 sing-box 订阅：JSON 按语义比（键序无关），
 // 但被跳过的节点列表与列表顺序必须完全一致。
-func TestSingboxParity(t *testing.T) {
+func TestSingboxGolden(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
-	raw, err := os.ReadFile(filepath.Join(root, "parity", "subscriptions.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "golden", "subscriptions.json"))
 	if err != nil {
-		t.Skipf("没有订阅夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有订阅夹具（testdata fixtures are frozen）: %v", err)
 	}
 	var want struct {
 		Singbox map[string]struct {
@@ -58,7 +58,7 @@ func TestSingboxParity(t *testing.T) {
 			}
 			gotNorm, wantNorm := normalize(t, got), normalize(t, exp.JSON)
 			if !jsonEqual(gotNorm, wantNorm) {
-				t.Errorf("配置与 Python 版不一致:\n%s", firstDiff(t, gotNorm, wantNorm))
+				t.Errorf("配置与 golden 基线不一致:\n%s", firstDiff(t, gotNorm, wantNorm))
 			}
 		})
 	}

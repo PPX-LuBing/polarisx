@@ -18,7 +18,7 @@ func newTestServer(t *testing.T) *Server {
 	root := filepath.Join("..", "..", "testdata")
 	src, err := os.ReadFile(filepath.Join(root, "fixture", "panel.db"))
 	if err != nil {
-		t.Skipf("没有夹具（先跑 python3 tools/mkfixture.py）: %v", err)
+		t.Skipf("没有夹具（testdata fixtures are frozen）: %v", err)
 	}
 	fixtureAbs, _ := filepath.Abs(filepath.Join(root, "fixture"))
 	t.Setenv("POLARISX_HOME", fixtureAbs)

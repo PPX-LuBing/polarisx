@@ -13,10 +13,10 @@ Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | ① | 项目骨架 / settings / SQLite 存储 | ✅ |
-| ② | Xray 配置生成（全协议）+ parity | ✅ 6 个变体全过 |
-| ③ | 订阅生成：分享链接 / Clash / sing-box | ✅ 链接 22 条 + Clash 18 份 + sing-box 6 份 parity 全过 |
-| ③b | 订阅 HTTP 服务（路径 / header / 停用提示 / HEAD） | ✅ 20 个请求矩阵 parity 全过 |
-| ④ | 流量统计 + 额度 + 每月重置 | ✅ 8 项 parity 全过（含状态型：重置/采集后的用户表逐字段一致） |
+| ② | Xray 配置生成（全协议）+ golden 回归基线 | ✅ 6 个变体全过 |
+| ③ | 订阅生成：分享链接 / Clash / sing-box | ✅ 链接 22 条 + Clash 18 份 + sing-box 6 份 golden 基线通过 |
+| ③b | 订阅 HTTP 服务（路径 / header / 停用提示 / HEAD） | ✅ 20 个请求矩阵 golden 基线通过 |
+| ④ | 流量统计 + 额度 + 每月重置 | ✅ 8 项 golden 基线通过（含状态型：重置/采集后的用户表逐字段一致） |
 | ⑤ | bubbletea TUI（主菜单/节点/用户/自检/应用） | ✅ 模型级测试 4 项 |
 | ⑥ | 内嵌 Web UI + 只读 API（含 /sub/ 复用） | ✅ 测试 6 项；已截图核对深/浅色与移动端 |
 | ⑦ | 部署脚本 / systemd / 独立数据目录 | ✅ |
@@ -25,12 +25,14 @@ Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 
 ```bash
 make build          # 产出 bin/polarisx
-make test           # 单元 + parity（固定 TZ=UTC，与夹具生成时一致）
+make test           # 单元 + golden 回归基线（与时区无关）
 POLARISX_HOME=/var/lib/polarisx ./bin/polarisx doctor
 POLARISX_HOME=/var/lib/polarisx ./bin/polarisx show      # 打印将要写入的 xray 配置
 ```
 
 数据目录用 `POLARISX_HOME`，默认 `/var/lib/polarisx`。
+
+golden 基线位于 `testdata/golden/`，输入夹具位于 `testdata/fixture*/` 并冻结。实现有意改变时，先运行 `UPDATE_GOLDEN=1 go test ./internal/panel ./internal/sub` 更新基线，再检查并提交生成的 diff；不需要改变行为时不要更新。该命令可重复运行且幂等。
 
 ## 用量告警（webhook）
 
@@ -161,7 +163,7 @@ polarisx node add --tag n1 --proto vless --net tcp --security reality \
 ## 设计取舍
 
 - 依赖只有一个：`modernc.org/sqlite`（纯 Go、无 cgo，才能编出单静态二进制）。
-- 其余全部标准库：`flag` 做 CLI、`net/http` 做订阅/API、`log/slog` 做日志、手写 Clash YAML（与 Python 版字节对齐）。
+- 其余全部标准库：`flag` 做 CLI、`net/http` 做订阅/API、`log/slog` 做日志、手写 Clash YAML（由 golden 回归基线锁定输出）。
 - TUI 用 `bubbletea` + `lipgloss`（第 ⑤ 阶段引入，仅此两个依赖）。
 - 订阅服务的 HTTP 契约稳定：路径、内容格式和状态码由测试覆盖。
 
