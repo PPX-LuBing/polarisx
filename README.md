@@ -38,6 +38,21 @@ POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入�
 
 数据目录用 `POLARISX_HOME`（兼容旧的 `IXPANEL_HOME`），默认 `/usr/local/ixpanel`。
 
+## 用量告警（webhook）
+
+```bash
+polarisx set alert_webhook=https://hooks.example.com/xxx
+polarisx alert --test        # 发一条测试消息
+polarisx alert               # 看当前配置与触发时机
+```
+
+触发时机：采集时用户用量过 **80%** 预警线、或被**自动停用**。一次采集里的所有事件**合并成
+一条消息**（否则一分钟一条会刷屏）。
+
+消息体带 `text` 字段，Slack / Discord / 飞书这类"贴个 JSON 就发消息"的 webhook 直接能用；
+同时带结构化的 `events`（kind/user/message/used_bytes/quota_bytes/at），自建端点可以按字段处理。
+发送失败**不影响采集**（配置已经改好了，只是消息没送出去），会在 `polarisx events` 里留一条记录。
+
 ## 流量历史与曲线
 
 采集（每分钟一次）会顺手把增量写进 `traffic_history`，保留 30 天，过期的每次采集时裁掉。

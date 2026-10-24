@@ -73,6 +73,9 @@ type Settings struct {
 	SubTunnelHost          string `json:"sub_tunnel_host"`
 	SubTunnelPrevBase      string `json:"sub_tunnel_prev_base"`
 	CloudflaredBin         string `json:"cloudflared_bin"`
+	// AlertWebhook 是 Go 版新增（Python 版没有）：用量预警/停用时 POST 到这里。
+	// 留空 = 不告警。设置里没有这个键时零值就是空，不影响读 Python 版写的设置。
+	AlertWebhook string `json:"alert_webhook"`
 }
 
 // Defaults 返回与 Python 版逐字一致的默认设置。

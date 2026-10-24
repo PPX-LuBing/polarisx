@@ -75,6 +75,15 @@ func (s *Store) Collect(st Settings, now time.Time, kick bool) (Report, error) {
 	if _, err := s.ReconcileConfig(st); err != nil {
 		return rep, err
 	}
+	// 用量告警（配了 webhook 才发）。发失败不影响采集结果——配置已经改好了，
+	// 只是消息没送出去，记一条事件让人能在 `polarisx events` 里看到。
+	if evs := alertEventsFromReport(rep, st, now); len(evs) > 0 {
+		if err := SendAlert(st, evs, 8*timeSecond); err != nil {
+			_ = s.Event("用量告警发送失败: "+err.Error(), "warn", "")
+		} else {
+			_ = s.Event(fmt.Sprintf("已发送用量告警 %d 条", len(evs)), "info", "")
+		}
+	}
 	return rep, nil
 }
 

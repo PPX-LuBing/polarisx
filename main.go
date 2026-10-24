@@ -67,6 +67,8 @@ func main() {
 		err = cmdQR(args)
 	case "selftest":
 		err = cmdSelfTest(args)
+	case "alert":
+		err = cmdAlert(args)
 	case "traffic":
 		err = cmdTraffic(args)
 	case "status":
@@ -126,6 +128,7 @@ func usage() {
   selftest [--node TAG] [--user NAME] [--json]
                        在本机起 xray 客户端，逐节点实测出口 IP 与延迟
                        （用来分清「服务端坏了」还是「你的网络/客户端问题」）
+  alert [--test]        用量告警：--test 发一条测试消息到 alert_webhook
   traffic [--hours N] [--json]
                        最近 N 小时的流量曲线（终端迷你图 + 合计）
   status               一眼看全：xray/节点/用户/订阅/落地机地址
@@ -921,6 +924,37 @@ func runCurl(proxy, url string, timeout time.Duration, codeOnly bool) (string, e
 		return "", err
 	}
 	return string(out), nil
+}
+
+func cmdAlert(args []string) error {
+	fs := flag.NewFlagSet("alert", flag.ExitOnError)
+	test := fs.Bool("test", false, "发一条测试告警")
+	_ = fs.Parse(args)
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(st.AlertWebhook) == "" {
+		fmt.Println("还没配告警地址。设一个：")
+		fmt.Println("  polarisx set alert_webhook=https://hooks.example.com/xxx")
+		fmt.Println("  然后：polarisx alert --test")
+		fmt.Println("\n触发时机：采集时用户用量过 80% 预警线、或被自动停用（每次采集最多一条消息）。")
+		return nil
+	}
+	if !*test {
+		fmt.Printf("告警地址: %s\n触发时机: 用量过 80%% 或被停用（每次采集合并成一条）\n", st.AlertWebhook)
+		fmt.Println("发测试消息：polarisx alert --test")
+		return nil
+	}
+	evs := []panel.AlertEvent{{
+		Kind: "warn", User: "（测试）", Message: "这是一条测试告警",
+		At: time.Now().Format("2006-01-02 15:04:05"),
+	}}
+	if err := panel.SendAlert(st, evs, 10*time.Second); err != nil {
+		return err
+	}
+	fmt.Printf("已发送到 %s\n", st.AlertWebhook)
+	return nil
 }
 
 func cmdTraffic(args []string) error {
