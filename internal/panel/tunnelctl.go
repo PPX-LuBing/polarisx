@@ -85,10 +85,12 @@ func Systemctl(args ...string) string {
 func InstallTunnelUnits(st Settings, say func(string)) error {
 	if !HasSystemd() {
 		cf := firstNonEmpty(FindCloudflared(st), "cloudflared")
-		say("本机没有 systemd —— 自己常驻这条命令：")
-		say(fmt.Sprintf("  %s tunnel --no-autoupdate --edge-ip-version auto --metrics %s --url %s",
-			cf, firstNonEmpty(st.SubTunnelMetrics, DefaultTunnelMetrics),
-			firstNonEmpty(st.SubTunnelTarget, DefaultTunnelTarget)))
+		if say != nil {
+			say("本机没有 systemd —— 自己常驻这条命令：")
+			say(fmt.Sprintf("  %s tunnel --no-autoupdate --edge-ip-version auto --metrics %s --url %s",
+				cf, firstNonEmpty(st.SubTunnelMetrics, DefaultTunnelMetrics),
+				firstNonEmpty(st.SubTunnelTarget, DefaultTunnelTarget)))
+		}
 		return nil
 	}
 	for name, body := range TunnelUnits(st) {
@@ -99,7 +101,9 @@ func InstallTunnelUnits(st Settings, say func(string)) error {
 	Systemctl("daemon-reload")
 	state := firstNonEmpty(Systemctl("enable", "--now",
 		"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer"), "已启用")
-	say("systemd: " + state)
+	if say != nil {
+		say("systemd: " + state)
+	}
 	return nil
 }
 
@@ -107,6 +111,7 @@ func InstallTunnelUnits(st Settings, say func(string)) error {
 // download=false 且找不到 cloudflared 时返回可执行的提示。
 func TunnelOn(ctx context.Context, s *Store, st Settings, download bool, waitSec int,
 	say func(string)) (Settings, error) {
+	original := st
 	cf := FindCloudflared(st)
 	if cf == "" && download {
 		say("下载 cloudflared…")
@@ -124,22 +129,23 @@ func TunnelOn(ctx context.Context, s *Store, st Settings, download bool, waitSec
 			"  3) polarisx set cloudflared_bin=/path/to/cloudflared")
 	}
 	st.CloudflaredBin = cf
+	// Do not persist an enabled tunnel until it has a live hostname. A failed
+	// startup must not leave subscriptions pointing at a tunnel that is down.
 	if st.SubTunnelPrevBase == "" {
 		st.SubTunnelPrevBase = st.SubBase
 	}
 	st.SubTunnel = true
-	if err := SaveSettings(st); err != nil {
-		return st, err
-	}
 	if err := InstallTunnelUnits(st, say); err != nil {
 		return st, err
 	}
 	host := WaitQuickTunnel(st, waitSec, say)
 	if host == "" {
+		rollbackTunnelSettings(original)
 		return st, fmt.Errorf("没等到隧道域名（cloudflared 没起来 / metrics 端口不对）。" +
 			"起来后再跑一次「刷新隧道域名」")
 	}
 	if _, err := ApplyTunnelBase(&st, host); err != nil {
+		rollbackTunnelSettings(original)
 		return st, err
 	}
 	if s != nil {
@@ -150,12 +156,22 @@ func TunnelOn(ctx context.Context, s *Store, st Settings, download bool, waitSec
 	return st, nil
 }
 
+func rollbackTunnelSettings(st Settings) {
+	if HasSystemd() {
+		_ = exec.Command("systemctl", "disable", "--now",
+			"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer").Run()
+	}
+	_ = SaveSettings(st)
+}
+
 // TunnelOff 关闭隧道并把订阅地址还原成开启前的前缀。
 func TunnelOff(s *Store, st Settings, say func(string)) (Settings, error) {
 	if HasSystemd() {
 		state := firstNonEmpty(Systemctl("disable", "--now",
 			"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer"), "已停用")
-		say("systemd: " + state)
+		if say != nil {
+			say("systemd: " + state)
+		}
 	}
 	prev := strings.TrimSpace(st.SubTunnelPrevBase)
 	st.SubTunnel = false
@@ -168,7 +184,9 @@ func TunnelOff(s *Store, st Settings, say func(string)) (Settings, error) {
 	if s != nil {
 		_ = s.Event("关闭免域名订阅隧道，订阅地址还原为 "+firstNonEmpty(prev, "(本机监听地址)"), "info", "")
 	}
-	say("隧道已关，订阅地址还原为: " + SubBaseFor(st))
+	if say != nil {
+		say("隧道已关，订阅地址还原为: " + SubBaseFor(st))
+	}
 	return st, nil
 }
 

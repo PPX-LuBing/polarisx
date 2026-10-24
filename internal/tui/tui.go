@@ -230,6 +230,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tunnelMsg:
 		m.tunnelBusy = false
 		m.tunnelLog = msg.lines
+		if msg.action == "status" {
+			m.tunnelState = msg.state
+			return m, nil
+		}
 		if msg.err != nil {
 			m.flash = "✗ 隧道" + msg.action + "失败: " + msg.err.Error()
 		} else {
@@ -290,6 +294,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.form.doneMsg != "" {
 					m.flash = m.form.doneMsg
 				}
+				if st, err := panel.LoadSettings(); err == nil {
+					m.St = st
+				}
 				m.form = nil
 			}
 			return m, nil
@@ -349,6 +356,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.apiKnown = false
 			m.flash = ""
 			m.qrArt, m.qrShown = "", false
+			if st, err := panel.LoadSettings(); err == nil {
+				m.St = st
+			}
 			if m.view == viewTraffic {
 				m.loadTraffic()
 			}
@@ -396,11 +406,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "x":
 			if m.view == viewTunnel {
+				if m.tunnelBusy {
+					return m, nil
+				}
 				return m.tunnelOff()
 			}
 			return m, nil
 		case "u":
 			if m.view == viewTunnel {
+				if m.tunnelBusy {
+					return m, nil
+				}
 				return m.tunnelRefresh()
 			}
 			return m, nil
@@ -419,6 +435,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "s":
 			if m.view == viewTunnel {
+				if m.tunnelBusy {
+					return m, nil
+				}
 				return m.tunnelOn()
 			}
 			if m.view == viewNodes {
@@ -629,7 +648,7 @@ func (m Model) helpView() string {
 	rows := []string{pageStyle.Render("快捷键"), h.View(m.keys), "", pageStyle.Render("当前页面")}
 	switch m.view {
 	case viewMenu:
-		rows = append(rows, "1-6         直接打开菜单项")
+		rows = append(rows, "1-9         直接打开菜单项")
 	case viewNodes:
 		rows = append(rows, "a 新增   e 编辑   s 重选 SNI   d 删除   选择行后操作")
 	case viewUsers:
