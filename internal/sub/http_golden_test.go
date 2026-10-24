@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -119,6 +120,9 @@ func TestHTTPGolden(t *testing.T) {
 			// 生成时间戳必然不同，两边都归一化掉
 			got = normalizeTimestamp(got)
 			wantBody = normalizeTimestamp(wantBody)
+			// 版本号同理：健康检查会带上它，但它每个 release 都变，不是行为
+			got = normalizeVersion(got)
+			wantBody = normalizeVersion(wantBody)
 			// JSON 正文按语义比（键序无关），其余逐字节比
 			if strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
 				if !jsonSemanticEqual(t, got, wantBody) {
@@ -131,6 +135,17 @@ func TestHTTPGolden(t *testing.T) {
 			}
 		})
 	}
+}
+
+// normalizeVersion 把响应里的「<产品名> <x.y.z> ok」归一化成占位符。
+//
+// 版本号不是行为：它每个 release 都变。若不归一化，每次升版本都会让这个夹具变红，
+// 然后人就会去手改夹具——那正是我们要避免的事（手改期望值等于把测试改瞎）。
+// 生成时间戳早已按同样理由归一化。
+var versionRe = regexp.MustCompile(`(?m)^(\S+) \d+\.\d+\.\d+(.*ok)$`)
+
+func normalizeVersion(s string) string {
+	return versionRe.ReplaceAllString(s, "$1 {VERSION}$2")
 }
 
 // normalizeTimestamp 把订阅头部的「# 生成时间 ...」归一化（每次生成都不同）。
