@@ -67,6 +67,8 @@ func main() {
 		err = cmdQR(args)
 	case "selftest":
 		err = cmdSelfTest(args)
+	case "traffic":
+		err = cmdTraffic(args)
 	case "status":
 		err = cmdStatus(args)
 	case "events":
@@ -124,6 +126,8 @@ func usage() {
   selftest [--node TAG] [--user NAME] [--json]
                        在本机起 xray 客户端，逐节点实测出口 IP 与延迟
                        （用来分清「服务端坏了」还是「你的网络/客户端问题」）
+  traffic [--hours N] [--json]
+                       最近 N 小时的流量曲线（终端迷你图 + 合计）
   status               一眼看全：xray/节点/用户/订阅/落地机地址
   events [--limit N]   看事件日志（停用/预警/改配置都记在这里）
   export [--config PATH]
@@ -917,6 +921,58 @@ func runCurl(proxy, url string, timeout time.Duration, codeOnly bool) (string, e
 		return "", err
 	}
 	return string(out), nil
+}
+
+func cmdTraffic(args []string) error {
+	fs := flag.NewFlagSet("traffic", flag.ExitOnError)
+	hours := fs.Int("hours", 24, "看最近多少小时")
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	_ = fs.Parse(args)
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	series, err := store.TrafficSeries(time.Now(), *hours)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		b, _ := panel.MarshalIndent(series)
+		fmt.Print(b)
+		return nil
+	}
+	if len(series) == 0 {
+		fmt.Println("还没有历史数据（采集每分钟写一笔）")
+		return nil
+	}
+	vals := make([]int64, len(series))
+	peak, peakAt := int64(0), 0
+	for i, p := range series {
+		vals[i] = p.Up + p.Down
+		if vals[i] > peak {
+			peak, peakAt = vals[i], i
+		}
+	}
+	fmt.Printf("最近 %d 小时：%s\n\n", *hours, panel.TrafficSummary(series))
+	fmt.Printf("  %s\n", panel.Sparkline(vals))
+	fmt.Printf("  %s%s%s\n", strings.Repeat(" ", peakAt), "↑峰值", "")
+	fmt.Printf("  %s … %s\n\n", series[0].Label, series[len(series)-1].Label)
+	// 有流量的小时列出来（没流量的时段不必刷屏）
+	fmt.Printf("  %-16s %10s %10s %10s\n", "时段", "上行", "下行", "合计")
+	shown := 0
+	for _, p := range series {
+		if p.Up == 0 && p.Down == 0 {
+			continue
+		}
+		fmt.Printf("  %-16s %10s %10s %10s\n", p.Label,
+			panel.HumanBytes(p.Up), panel.HumanBytes(p.Down), panel.HumanBytes(p.Up+p.Down))
+		shown++
+	}
+	if shown == 0 {
+		fmt.Println("  （这段时间没有流量）")
+	}
+	return nil
 }
 
 func cmdStatus(args []string) error {

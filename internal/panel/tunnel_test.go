@@ -176,3 +176,92 @@ func TestSubBaseFor(t *testing.T) {
 		t.Errorf("没配 sub_base 时应回落到监听地址，实际 %q", got)
 	}
 }
+
+// 流量历史：图表要的曲线靠它，采集每分钟写一笔、超过 30 天裁掉。
+func TestTrafficHistory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("POLARISX_HOME", dir)
+	store, err := Open(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
+	// 三个小时各写一笔；0 增量的不该写进去
+	if err := store.RecordTraffic(base, map[string][2]int64{
+		"alice": {100, 200}, "bob": {0, 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordTraffic(base.Add(time.Hour), map[string][2]int64{
+		"alice": {300, 400}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordTraffic(base.Add(3*time.Hour), map[string][2]int64{
+		"alice": {5, 5}}); err != nil {
+		t.Fatal(err)
+	}
+
+	series, err := store.TrafficSeries(base.Add(3*time.Hour), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 4 {
+		t.Fatalf("应返回 4 个桶，实际 %d", len(series))
+	}
+	// 序列含当前小时：base, base+1h, base+2h, base+3h
+	if series[0].Up != 100 || series[0].Down != 200 {
+		t.Errorf("第 0 桶不对: %+v", series[0])
+	}
+	if series[1].Up != 300 || series[1].Down != 400 {
+		t.Errorf("第 1 桶不对: %+v", series[1])
+	}
+	// 中间这小时没有流量——桶必须存在，否则图表连不上
+	if series[2].Up != 0 || series[2].Down != 0 {
+		t.Errorf("第 2 桶应为空: %+v", series[2])
+	}
+	if series[3].Up != 5 || series[3].Down != 5 {
+		t.Errorf("最后一个桶（当前小时）应被包含: %+v", series[3])
+	}
+	up, down := TrafficTotal(series)
+	if up != 405 || down != 605 {
+		t.Errorf("合计不对: ↑%d ↓%d", up, down)
+	}
+
+	t.Run("裁剪过期数据", func(t *testing.T) {
+		// 造一条 40 天前的
+		old := base.AddDate(0, 0, -40).Format("2006-01-02 15:04:05")
+		if _, err := store.db.Exec(
+			"INSERT INTO traffic_history(ts,email,up,down) VALUES (?,?,?,?)",
+			old, "alice", 1, 1); err != nil {
+			t.Fatal(err)
+		}
+		n, err := store.PruneTraffic(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("应裁掉 1 条，实际 %d", n)
+		}
+		var cnt int
+		_ = store.db.QueryRow("SELECT COUNT(*) FROM traffic_history WHERE ts=?", old).Scan(&cnt)
+		if cnt != 0 {
+			t.Error("过期数据没删掉")
+		}
+	})
+
+	t.Run("迷你图与摘要", func(t *testing.T) {
+		if got := Sparkline([]int64{0, 1, 2, 8}); len([]rune(got)) != 4 {
+			t.Errorf("迷你图长度不对: %q", got)
+		}
+		if got := Sparkline(nil); got != "" {
+			t.Errorf("空输入应返回空串，实际 %q", got)
+		}
+		if got := Sparkline([]int64{0, 0}); got != "▁▁" {
+			t.Errorf("全 0 应画成最低档，实际 %q", got)
+		}
+		if s := TrafficSummary(series); !strings.Contains(s, "↑") || !strings.Contains(s, "↓") {
+			t.Errorf("摘要格式不对: %s", s)
+		}
+	})
+}

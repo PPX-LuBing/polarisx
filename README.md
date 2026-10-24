@@ -38,6 +38,21 @@ POLARISX_HOME=/usr/local/ixpanel ./bin/polarisx show      # 打印将要写入�
 
 数据目录用 `POLARISX_HOME`（兼容旧的 `IXPANEL_HOME`），默认 `/usr/local/ixpanel`。
 
+## 流量历史与曲线
+
+采集（每分钟一次）会顺手把增量写进 `traffic_history`，保留 30 天，过期的每次采集时裁掉。
+`raw_stats` 只存"最近一次"，没有历史——曲线靠这张表。
+
+```bash
+polarisx traffic --hours 24        # 终端迷你图 + 逐小时明细
+polarisx traffic --json
+```
+
+Web 面板顶部有「流量曲线」：24 根小时柱，**琥珀色只给峰值与当前这一小时**（这个面板里琥珀
+一直是"信号"的意思，铺满就失去意义了）。手写 SVG，不引图表库。接口是 `GET /api/traffic?hours=N`。
+
+增量为 0 的时段不写库（省空间），图表里没数据的桶补 0，所以曲线是连续的。
+
 ## 节点自检（selftest）
 
 ```bash

@@ -7,7 +7,9 @@ package web
 
 import (
 	_ "embed"
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,9 +102,36 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(indexHTML)
 	case "/api/overview":
 		s.serveOverview(w)
+	case "/api/traffic":
+		s.serveTraffic(w, r)
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
+}
+
+// serveTraffic 返回按小时分桶的流量序列（Web 图表用）。
+func (s *Server) serveTraffic(w http.ResponseWriter, r *http.Request) {
+	hours := 24
+	if v := r.URL.Query().Get("hours"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			hours = n
+		}
+	}
+	if hours > 24*panel.HistoryRetentionDays {
+		hours = 24 * panel.HistoryRetentionDays
+	}
+	series, err := s.Store.TrafficSeries(time.Now(), hours)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	up, down := panel.TrafficTotal(series)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"hours": hours, "series": series,
+		"up": up, "down": down, "total": up + down,
+	})
 }
 
 func (s *Server) serveOverview(w http.ResponseWriter) {

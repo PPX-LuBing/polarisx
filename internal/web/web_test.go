@@ -165,3 +165,71 @@ func TestSubURLHelpers(t *testing.T) {
 		t.Errorf("没配 sub_base 应回落到监听地址，实际 %q", got)
 	}
 }
+
+// 流量曲线接口：图表全靠它，桶数、合计、参数边界都要对。
+func TestTrafficAPI(t *testing.T) {
+	s := newTestServer(t)
+	// 造两小时的历史
+	base := time.Now().Truncate(time.Hour).Add(-2 * time.Hour)
+	if err := s.Store.RecordTraffic(base, map[string][2]int64{"alice": {1000, 2000}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.RecordTraffic(base.Add(time.Hour), map[string][2]int64{"alice": {3000, 4000}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/traffic?hours=6", nil))
+	if rec.Code != 200 {
+		t.Fatalf("状态码 %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Hours  int                  `json:"hours"`
+		Series []panel.TrafficPoint `json:"series"`
+		Up     int64                `json:"up"`
+		Down   int64                `json:"down"`
+		Total  int64                `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("不是合法 JSON: %v\n%s", err, rec.Body.String())
+	}
+	if got.Hours != 6 || len(got.Series) != 6 {
+		t.Errorf("应有 6 个桶，实际 hours=%d len=%d", got.Hours, len(got.Series))
+	}
+	if got.Up != 4000 || got.Down != 6000 || got.Total != 10000 {
+		t.Errorf("合计不对: ↑%d ↓%d 共 %d", got.Up, got.Down, got.Total)
+	}
+	// 最后一个桶必须是当前小时（图表要能看到"现在"）
+	last := got.Series[len(got.Series)-1]
+	if !strings.HasPrefix(last.Label, time.Now().Format("01-02 15")) {
+		t.Errorf("最后一个桶应是当前小时，实际 %s", last.Label)
+	}
+	// 参数边界：非法值回落 24，超大值被夹到保留期
+	for _, c := range []struct {
+		q    string
+		want int
+	}{
+		{"?hours=abc", 24}, {"?hours=0", 24}, {"?hours=-5", 24}, {"?hours=999999", 24 * panel.HistoryRetentionDays},
+	} {
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest("GET", "/api/traffic"+c.q, nil))
+		var v struct {
+			Hours int `json:"hours"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+			t.Fatalf("%s: %v", c.q, err)
+		}
+		if v.Hours != c.want {
+			t.Errorf("%s 应回落/夹到 %d，实际 %d", c.q, c.want, v.Hours)
+		}
+	}
+}
+
+// 面板 HTML 里要有图表代码（否则接口对了也没人画）。
+func TestIndexHasChart(t *testing.T) {
+	for _, want := range []string{"流量曲线", "api/traffic", "renderChart", "loadTraffic"} {
+		if !strings.Contains(string(indexHTML), want) {
+			t.Errorf("面板 HTML 缺少 %q", want)
+		}
+	}
+}

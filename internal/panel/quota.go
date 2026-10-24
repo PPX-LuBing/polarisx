@@ -284,6 +284,17 @@ func (s *Store) ApplyStats(stats map[string]int64, st Settings, today time.Time,
 		emails[e] = true
 	}
 	now := time.Now().Format("2006-01-02 15:04:05")
+	// 记一笔历史（图表用）并裁剪过期数据；raw_stats 只存"最近一次"，没有历史
+	histDeltas := map[string][2]int64{}
+	for _, email := range sortedKeys(emails) {
+		histDeltas[email] = [2]int64{upBy[email], downBy[email]}
+	}
+	if err := s.RecordTraffic(time.Now(), histDeltas); err != nil {
+		return rep, err
+	}
+	if _, err := s.PruneTraffic(time.Now()); err != nil {
+		return rep, err
+	}
 	for _, email := range sortedKeys(emails) {
 		du, dd := upBy[email], downBy[email]
 		if _, err := s.db.Exec(`INSERT INTO raw_stats(email, up, down, updated) VALUES (?,?,?,?)

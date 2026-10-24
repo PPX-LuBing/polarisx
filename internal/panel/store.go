@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS user_node_keys (
     PRIMARY KEY (user_id, node_id)
 );
 
+-- 每次采集的增量，供 Web 图表画曲线。raw_stats 只存"最近一次"，没有历史。
+CREATE TABLE IF NOT EXISTS traffic_history (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts     TEXT NOT NULL,
+    email  TEXT NOT NULL,
+    up     INTEGER DEFAULT 0,
+    down   INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_traffic_ts ON traffic_history(ts);
+
 CREATE TABLE IF NOT EXISTS raw_stats (
     email       TEXT PRIMARY KEY,
     up          INTEGER DEFAULT 0,
