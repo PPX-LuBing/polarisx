@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -202,14 +201,6 @@ func modeReadable(mode os.FileMode, ownerUID, ownerGID int, userUID string, inGr
 	default:
 		return mode&0o004 != 0
 	}
-}
-
-func fileOwner(fi os.FileInfo) (int, int, bool) {
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0, false
-	}
-	return int(st.Uid), int(st.Gid), true
 }
 
 func gidInGroups(gid int, u *user.User) bool {

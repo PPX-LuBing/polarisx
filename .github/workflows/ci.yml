@@ -24,6 +24,16 @@ jobs:
           fi
           echo "扫描通过：无私钥、无常见凭据格式"
 
+      # 发版会编 Windows/arm64，但这些目标平时不编——出问题只有发版才发现。
+      # 这里先把所有目标编一遍（曾因 syscall.Stat_t 在 Windows 上不存在而发版失败）。
+      - name: 交叉编译所有发布目标
+        run: |
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${t%/*}; arch=${t#*/}
+            echo "== $os/$arch"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -o /dev/null . || exit 1
+          done
+
       - name: 构建
         run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o polarisx .
       - name: 测试（含固定 golden 回归基线）
