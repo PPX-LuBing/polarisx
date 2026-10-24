@@ -73,6 +73,8 @@ func key(m Model, s string) Model {
 		msg = tea.KeyMsg{Type: tea.KeyUp}
 	case "pgup":
 		msg = tea.KeyMsg{Type: tea.KeyPgUp}
+	case "ctrl+u":
+		msg = tea.KeyMsg{Type: tea.KeyCtrlU}
 	case "pgdown":
 		msg = tea.KeyMsg{Type: tea.KeyPgDown}
 	default:
@@ -585,5 +587,149 @@ func TestTUISelfTestAllGood(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "不在服务端") {
 		t.Error("全通时应提示问题不在服务端")
+	}
+}
+
+// 流量页：进页面时算好数据，View 里不查库（View 每次按键都会跑）。
+func TestTUITrafficView(t *testing.T) {
+	m := newTestModel(t)
+	now := time.Now()
+	// 造 3 小时的数据：每用户 up 1GiB / down 2GiB
+	for i := 0; i < 3; i++ {
+		ts := now.Add(-time.Duration(i) * time.Hour)
+		if err := m.Store.RecordTraffic(ts, map[string][2]int64{"alice": {1 << 30, 2 << 30}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m = gotoMenu(t, m, "流量统计")
+	if m.view != viewTraffic {
+		t.Fatalf("应进入流量页，实际 %v", m.view)
+	}
+	if len(m.traffic24) == 0 {
+		t.Fatal("进页面时应该已经取好数据")
+	}
+	v := m.View()
+	// 3 小时 × (1GiB↑ + 2GiB↓) = 3GiB↑ / 6GiB↓
+	for _, want := range []string{"近 24 小时", "近 7 天", "近 30 天", "↑3.00 GB", "↓6.00 GB",
+		"9.00 GB", "峰值", "█"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("流量页缺少 %q\n%s", want, v)
+		}
+	}
+	// 空库要有说明而不是空白
+	m2 := newTestModel(t)
+	m2 = gotoMenu(t, m2, "流量统计")
+	if !strings.Contains(m2.View(), "没有流量记录") {
+		t.Errorf("没有数据时应给出说明\n%s", m2.View())
+	}
+}
+
+// 设置页：能改、能校验、能落盘；白名单之外的键不能从 TUI 改。
+func TestTUISettingsEdit(t *testing.T) {
+	m := newTestModel(t)
+	m = gotoMenu(t, m, "设置")
+	if m.view != viewSettings {
+		t.Fatalf("应进入设置页，实际 %v", m.view)
+	}
+	v := m.View()
+	for _, want := range []string{"落地机地址", "订阅地址前缀", "每月重置日", "分流预设", "出口 IP 族"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("设置页缺少 %q\n%s", want, v)
+		}
+	}
+
+	// 订阅前缀：非法地址要被拦下并说明原因
+	for m.cursor < 1 {
+		m = key(m, "down")
+	}
+	m = key(m, "enter")
+	if m.form == nil {
+		t.Fatal("回车应打开编辑表单")
+	}
+	m = typeText(m, "1.2.3.4:61887")
+	m = key(m, "enter")
+	if m.form == nil || !strings.Contains(m.View(), "http://") {
+		t.Fatalf("非法订阅前缀应被拦下\n%s", m.View())
+	}
+	// 合法值保存并落盘（typeText 是追加，先清空）
+	m = key(m, "ctrl+u")
+	m = typeText(m, "http://example.com:61887")
+	m = key(m, "enter")
+	if m.form != nil {
+		t.Fatalf("合法值应保存: %v", m.form.err)
+	}
+	st, err := panel.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.SubBase != "http://example.com:61887" {
+		t.Errorf("订阅前缀没写盘: %q", st.SubBase)
+	}
+	if !strings.Contains(m.flash, "已保存") {
+		t.Errorf("保存后应有提示，实际 %q", m.flash)
+	}
+
+	// 重置日：越界要拒绝（表单用枚举，但直接传值也要挡住）
+	if err := applySetting(&st, "quota_reset_day", "31"); err == nil {
+		t.Error("重置日 31 应被拒绝")
+	}
+	if err := applySetting(&st, "quota_reset_day", "0"); err == nil {
+		t.Error("重置日 0 应被拒绝")
+	}
+	if err := applySetting(&st, "quota_reset_day", "15"); err != nil {
+		t.Errorf("重置日 15 应通过: %v", err)
+	}
+	if st.QuotaResetDay != 15 {
+		t.Errorf("重置日没写进设置: %d", st.QuotaResetDay)
+	}
+	// 白名单之外的键必须拒绝
+	if err := applySetting(&st, "restart_cmd", "rm -rf /"); err == nil {
+		t.Error("TUI 不该能改 restart_cmd")
+	}
+	if err := applySetting(&st, "xray_config", "/tmp/x.json"); err == nil {
+		t.Error("TUI 不该能改 xray_config")
+	}
+}
+
+// 隧道页：状态渲染 + 三个动作键都能起异步命令（真跑会碰 systemd/网络，这里不执行）。
+func TestTUITunnelView(t *testing.T) {
+	m := newTestModel(t)
+	m = gotoMenu(t, m, "免域名隧道")
+	if m.view != viewTunnel {
+		t.Fatalf("应进入隧道页，实际 %v", m.view)
+	}
+	if !strings.Contains(m.View(), "按 r 读取当前状态") {
+		t.Errorf("未读状态时应提示按 r\n%s", m.View())
+	}
+	// 注入状态：读 metrics 要联网，测试里不干
+	m.tunnelState = &panel.TunnelState{
+		Enabled: true, Cloudflared: "/usr/local/bin/cloudflared",
+		Target: "127.0.0.1:8080", Metrics: "127.0.0.1:61888",
+		LiveHost: "abc.trycloudflare.com", RecordedHost: "old.trycloudflare.com",
+		SubBase: "https://old.trycloudflare.com",
+		Warn:    "域名对不上：跑一次「刷新隧道域名」更新订阅地址",
+	}
+	v := m.View()
+	for _, want := range []string{"开启", "cloudflared", "当前域名", "abc.trycloudflare.com",
+		"old.trycloudflare.com", "域名对不上", "订阅地址前缀"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("隧道页缺少 %q\n%s", want, v)
+		}
+	}
+	// 三个动作键都要起异步命令并进入处理中状态（同步做会卡住界面好几秒）
+	for _, k := range []string{"s", "x", "u"} {
+		model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		got := model.(Model)
+		if cmd == nil {
+			t.Errorf("按 %q 应启动异步命令", k)
+		}
+		if !got.tunnelBusy {
+			t.Errorf("按 %q 后应进入处理中状态", k)
+		}
+	}
+	// 没装 cloudflared 时要给出可执行的下一步
+	m.tunnelState = &panel.TunnelState{Enabled: false}
+	if !strings.Contains(m.View(), "--download") {
+		t.Errorf("缺 cloudflared 时应提示怎么装\n%s", m.View())
 	}
 }

@@ -53,6 +53,9 @@ const (
 	viewUserDetail
 	viewEvents
 	viewSelfTest
+	viewTraffic
+	viewSettings
+	viewTunnel
 )
 
 var menuItems = []string{
@@ -62,6 +65,9 @@ var menuItems = []string{
 	"用户管理",
 	"生成配置并重启 xray",
 	"事件与告警",
+	"流量统计",
+	"设置",
+	"免域名隧道",
 	"退出",
 }
 
@@ -85,8 +91,16 @@ type Model struct {
 	// 自检页状态
 	selfTesting bool
 	selfResults []panel.SelfTestResult
-	actionOut   []string
-	quit        bool
+	// 隧道页状态（读 metrics 端口要几秒，所以异步）
+	tunnelState *panel.TunnelState
+	tunnelBusy  bool
+	tunnelLog   []string
+	// 流量页：数据在进页面/刷新时算好，不在 View 里查库（View 每次按键都会跑）
+	traffic24 []panel.TrafficPoint
+	traffic7  []panel.TrafficPoint
+	traffic30 []panel.TrafficPoint
+	actionOut []string
+	quit      bool
 	// 写操作：表单与删除确认（nil / 空 = 不在该模式）
 	form    *form
 	confirm string
@@ -213,6 +227,16 @@ func (m Model) repickSNI() (tea.Model, tea.Cmd) {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tunnelMsg:
+		m.tunnelBusy = false
+		m.tunnelLog = msg.lines
+		if msg.err != nil {
+			m.flash = "✗ 隧道" + msg.action + "失败: " + msg.err.Error()
+		} else {
+			m.flash = "✓ 隧道" + msg.action + "完成"
+		}
+		// 动作之后重新读一次状态，界面才是最新的
+		return m, m.loadTunnelStatus()
 	case selfTestMsg:
 		m.selfTesting = false
 		if msg.err != nil {
@@ -325,6 +349,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.apiKnown = false
 			m.flash = ""
 			m.qrArt, m.qrShown = "", false
+			if m.view == viewTraffic {
+				m.loadTraffic()
+			}
 			m.refreshStatus()
 			return m, nil
 		case "?", "h":
@@ -367,6 +394,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, nil
+		case "x":
+			if m.view == viewTunnel {
+				return m.tunnelOff()
+			}
+			return m, nil
+		case "u":
+			if m.view == viewTunnel {
+				return m.tunnelRefresh()
+			}
+			return m, nil
 		case "t":
 			if m.view == viewEvents {
 				return m.sendTestAlert()
@@ -381,6 +418,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "s":
+			if m.view == viewTunnel {
+				return m.tunnelOn()
+			}
 			if m.view == viewNodes {
 				return m.repickSNI()
 			}
@@ -394,6 +434,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.view == viewMenu {
 				return m.selectMenu()
+			}
+			if m.view == viewSettings {
+				return m.startEditSetting()
 			}
 			if m.view == viewUsers {
 				users, _ := m.Store.Users()
@@ -428,6 +471,8 @@ func (m Model) rowCount() int {
 	case viewUsers:
 		users, _ := m.Store.Users()
 		return len(users)
+	case viewSettings:
+		return len(editableSettings())
 	}
 	return len(menuItems)
 }
@@ -455,6 +500,16 @@ func (m Model) selectMenu() (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.actionOut = nil
 	case 6:
+		m.view = viewTraffic
+		m.loadTraffic()
+	case 7:
+		m.view = viewSettings
+		m.cursor = 0
+	case 8:
+		m.view = viewTunnel
+		m.tunnelLog = nil
+		return m, m.loadTunnelStatus()
+	case 9:
 		m.quit = true
 		return m, tea.Quit
 	}
@@ -489,6 +544,12 @@ func (m Model) View() string {
 		b.WriteString(m.eventsView())
 	case viewSelfTest:
 		b.WriteString(m.selfTestView())
+	case viewTraffic:
+		b.WriteString(m.trafficView())
+	case viewSettings:
+		b.WriteString(m.settingsView())
+	case viewTunnel:
+		b.WriteString(m.tunnelView())
 	case viewDoctor, viewApply:
 		b.WriteString(m.textView())
 	}
@@ -764,8 +825,14 @@ func (m Model) footer() string {
 		hint += "  ·  w webhook  ·  t 测试告警  ·  r 刷新"
 	case viewSelfTest:
 		hint += "  ·  t 开始实测  ·  r 刷新"
+	case viewTraffic:
+		hint += "  ·  r 刷新"
+	case viewSettings:
+		hint += "  ·  Enter 修改  ·  r 刷新"
+	case viewTunnel:
+		hint += "  ·  s 开启  ·  x 关闭  ·  u 刷新域名  ·  r 重读状态"
 	case viewMenu:
-		hint += "  ·  1-7 快捷打开"
+		hint += "  ·  1-9 快捷打开"
 	default:
 		hint += "  ·  r 刷新"
 	}
@@ -1246,4 +1313,325 @@ func (m Model) selfTestView() string {
 	}
 	b.WriteString(dimStyle.Render("  若客户端仍超时，问题在客户端或本地网络，不在服务端。") + "\n")
 	return b.String()
+}
+
+// ---------------------------------------------------------------------------
+// 流量统计页：近 24 小时 / 7 天 / 30 天的用量与迷你图
+// ---------------------------------------------------------------------------
+
+// loadTraffic 取三个时间窗的数据。View() 每次按键都会跑，所以查询只在这里做。
+func (m *Model) loadTraffic() {
+	now := time.Now()
+	m.traffic24, _ = m.Store.TrafficSeries(now, 24)
+	m.traffic7, _ = m.Store.TrafficSeries(now, 24*7)
+	m.traffic30, _ = m.Store.TrafficSeries(now, 24*30)
+}
+
+func (m Model) trafficView() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("流量统计") + "\n\n")
+	// TrafficSeries 会把没有流量的空桶也返回（图表才连得上），所以"有没有数据"
+	// 要看总量而不是长度。
+	if up, down := panel.TrafficTotal(m.traffic24); up+down == 0 {
+		b.WriteString("  " + dimStyle.Render("最近 24 小时没有流量记录（有流量后这里会出现曲线）") + "\n")
+		return b.String()
+	}
+
+	// 近 24 小时：迷你图 + 峰值标记
+	vals := make([]int64, len(m.traffic24))
+	peak, peakAt := int64(0), 0
+	for i, p := range m.traffic24 {
+		vals[i] = p.Up + p.Down
+		if vals[i] > peak {
+			peak, peakAt = vals[i], i
+		}
+	}
+	fmt.Fprintf(&b, "  %s  %s\n", headerStyle.Render("近 24 小时"), panel.TrafficSummary(m.traffic24))
+	b.WriteString("  " + selStyle.Render(panel.Sparkline(vals)) + "\n")
+	if peak > 0 {
+		b.WriteString("  " + strings.Repeat(" ", peakAt) + warnStyle.Render("↑峰值 "+
+			panel.HumanBytes(peak)) + "\n")
+	}
+	fmt.Fprintf(&b, "  %s\n\n", dimStyle.Render(m.traffic24[0].Label+" … "+
+		m.traffic24[len(m.traffic24)-1].Label))
+
+	// 7 天 / 30 天：只要合计
+	if len(m.traffic7) > 0 {
+		fmt.Fprintf(&b, "  %-12s %s\n", "近 7 天", panel.TrafficSummary(m.traffic7))
+	}
+	if len(m.traffic30) > 0 {
+		fmt.Fprintf(&b, "  %-12s %s\n", "近 30 天", panel.TrafficSummary(m.traffic30))
+	}
+	if len(m.traffic7) > 0 {
+		vals7 := make([]int64, len(m.traffic7))
+		for i, p := range m.traffic7 {
+			vals7[i] = p.Up + p.Down
+		}
+		b.WriteString("\n  " + dimStyle.Render("近 7 天（按小时）") + "\n  " +
+			dimStyle.Render(panel.Sparkline(vals7)) + "\n")
+	}
+	b.WriteString("\n" + dimStyle.Render("  数据来自采集器每小时的增量；只保留最近 30 天。") + "\n")
+	return b.String()
+}
+
+// ---------------------------------------------------------------------------
+// 设置页：把最常用的几项做成可编辑，带校验
+// ---------------------------------------------------------------------------
+
+// editableSetting 描述一个可在 TUI 里改的设置项。
+type editableSetting struct {
+	key   string // settings.json 里的键名
+	label string
+	hint  string
+	pick  []string // 非空 = 枚举，用左右键选
+	// check 返回错误则拒绝保存（空值等业务规则放这里，不要只靠 pick 限制）
+	check func(v string) error
+}
+
+// editableSettings 是 TUI 里开放的设置项。故意只放"改了不会把服务弄坏"的：
+// xray 路径、重启命令这类留着用 CLI 改，改错代价太大。
+func editableSettings() []editableSetting {
+	return []editableSetting{
+		{key: "server_host", label: "落地机地址",
+			hint: "节点没单独配入口地址时用它；填域名或 IP"},
+		{key: "sub_base", label: "订阅地址前缀",
+			hint: "客户端拿到的订阅链接前缀，如 http://1.2.3.4:61887",
+			check: func(v string) error {
+				if v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+					return fmt.Errorf("要以 http:// 或 https:// 开头（留空则用落地机地址拼）")
+				}
+				return nil
+			}},
+		{key: "quota_reset_day", label: "每月重置日",
+			hint: "1-28，避免 29-31 在短月里跳过", pick: []string{
+				"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+				"15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28"}},
+		{key: "clash_rules", label: "分流预设", pick: []string{"myclash", "community"},
+			hint: "订阅里 Clash 的分流规则集"},
+		{key: "outbound_domain_strategy", label: "出口 IP 族",
+			pick: []string{"UseIPv4", "AsIs", "UseIP", "UseIPv6"},
+			hint: "改了要重新生成 xray 配置才生效"},
+		{key: "sub_title", label: "订阅名", hint: "留空用默认名"},
+	}
+}
+
+// settingValue 读当前值（统一转成字符串，表单只认字符串）。
+func settingValue(st panel.Settings, key string) string {
+	switch key {
+	case "server_host":
+		return st.ServerHost
+	case "sub_base":
+		return st.SubBase
+	case "quota_reset_day":
+		return strconv.Itoa(st.QuotaResetDay)
+	case "clash_rules":
+		return st.ClashRules
+	case "outbound_domain_strategy":
+		return st.OutboundDomainStrategy
+	case "sub_title":
+		return st.SubTitle
+	}
+	return ""
+}
+
+// applySetting 写回一项设置（只认白名单里的键，别的一律拒绝）。
+func applySetting(st *panel.Settings, key, val string) error {
+	switch key {
+	case "server_host":
+		st.ServerHost = val
+	case "sub_base":
+		st.SubBase = val
+	case "quota_reset_day":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 || n > 28 {
+			return fmt.Errorf("重置日只能是 1-28（避免 29-31 在短月里跳过）")
+		}
+		st.QuotaResetDay = n
+	case "clash_rules":
+		st.ClashRules = val
+	case "outbound_domain_strategy":
+		st.OutboundDomainStrategy = val
+	case "sub_title":
+		st.SubTitle = val
+	default:
+		return fmt.Errorf("不支持在 TUI 里改 %s", key)
+	}
+	return nil
+}
+
+func (m Model) settingsView() string {
+	st := m.currentSettings()
+	items := editableSettings()
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("设置") + "\n\n")
+	for i, it := range items {
+		cursor := "  "
+		if i == m.cursor {
+			cursor = selStyle.Render("▸ ")
+		}
+		val := settingValue(st, it.key)
+		if strings.TrimSpace(val) == "" {
+			val = dimStyle.Render("(空)")
+		}
+		fmt.Fprintf(&b, "  %s%-12s %s\n", cursor, it.label, val)
+		fmt.Fprintf(&b, "      %s\n", dimStyle.Render(it.hint))
+	}
+	b.WriteString("\n" + dimStyle.Render("  只开放这几项：xray 路径、重启命令这类改错代价大，用 CLI 改。") + "\n")
+	b.WriteString(dimStyle.Render("  改「出口 IP 族」后要跑一次 apply（主菜单第 5 项）才对 xray 生效。") + "\n")
+	return b.String()
+}
+
+func (m Model) startEditSetting() (tea.Model, tea.Cmd) {
+	items := editableSettings()
+	if m.cursor >= len(items) {
+		return m, nil
+	}
+	it := items[m.cursor]
+	st := m.currentSettings()
+	m.form = newForm("修改设置 · "+it.label, []field{
+		{label: it.key, value: settingValue(st, it.key), hint: it.hint, pick: it.pick},
+	}, "留空表示清空这一项", func(v []string) (bool, string, error) {
+		val := strings.TrimSpace(v[0])
+		if it.check != nil {
+			if err := it.check(val); err != nil {
+				return true, "", err
+			}
+		}
+		st, err := panel.LoadSettings()
+		if err != nil {
+			return true, "", err
+		}
+		if err := applySetting(&st, it.key, val); err != nil {
+			return true, "", err
+		}
+		if err := panel.SaveSettings(st); err != nil {
+			return true, "", err
+		}
+		msg := "✓ 已保存 " + it.label
+		if it.key == "outbound_domain_strategy" {
+			msg += "（需跑一次 apply 才对 xray 生效）"
+		}
+		return false, msg, nil
+	})
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// 免域名隧道页
+// ---------------------------------------------------------------------------
+
+type tunnelMsg struct {
+	action string
+	state  *panel.TunnelState
+	lines  []string
+	err    error
+}
+
+// loadTunnelStatus 读状态（要连 metrics 端口，可能几秒，所以异步）。
+func (m Model) loadTunnelStatus() tea.Cmd {
+	st := m.currentSettings()
+	return func() tea.Msg {
+		s := panel.TunnelStatus(st, 4*time.Second)
+		return tunnelMsg{action: "status", state: &s}
+	}
+}
+
+func (m Model) tunnelOn() (tea.Model, tea.Cmd) {
+	st := m.currentSettings()
+	store := m.Store
+	m.tunnelBusy = true
+	m.tunnelLog = nil
+	m.flash = "正在开启隧道…（要等 cloudflared 起来并分配域名）"
+	return m, func() tea.Msg {
+		var lines []string
+		say := func(s string) { lines = append(lines, s) }
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		// TUI 里不自动下载 cloudflared：那是上百 MB 的下载，交给 CLI 显式做
+		st2, err := panel.TunnelOn(ctx, store, st, false, 60, say)
+		_ = st2
+		return tunnelMsg{action: "on", lines: lines, err: err}
+	}
+}
+
+func (m Model) tunnelOff() (tea.Model, tea.Cmd) {
+	st := m.currentSettings()
+	store := m.Store
+	m.tunnelBusy = true
+	m.tunnelLog = nil
+	m.flash = "正在关闭隧道…"
+	return m, func() tea.Msg {
+		var lines []string
+		say := func(s string) { lines = append(lines, s) }
+		_, err := panel.TunnelOff(store, st, say)
+		return tunnelMsg{action: "off", lines: lines, err: err}
+	}
+}
+
+func (m Model) tunnelRefresh() (tea.Model, tea.Cmd) {
+	st := m.currentSettings()
+	store := m.Store
+	m.tunnelBusy = true
+	m.flash = "正在刷新隧道域名…"
+	return m, func() tea.Msg {
+		var lines []string
+		say := func(s string) { lines = append(lines, s) }
+		_, _, err := panel.TunnelRefresh(store, st, say)
+		return tunnelMsg{action: "refresh", lines: lines, err: err}
+	}
+}
+
+func (m Model) tunnelView() string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("免域名隧道") + "\n\n")
+	b.WriteString(dimStyle.Render("  用 Cloudflare 临时隧道给订阅套一个域名：没有自己的域名也能给客户端一个 https 地址。") + "\n")
+	b.WriteString(dimStyle.Render("  临时域名每次重启都会变，订阅地址跟着变——客户端需要重新拉取订阅。") + "\n\n")
+
+	if m.tunnelBusy {
+		b.WriteString(warnStyle.Render("  处理中，请稍候…") + "\n")
+		for _, l := range m.tunnelLog {
+			b.WriteString("    " + l + "\n")
+		}
+		return b.String()
+	}
+	s := m.tunnelState
+	if s == nil {
+		b.WriteString("  " + dimStyle.Render("按 r 读取当前状态") + "\n")
+		return b.String()
+	}
+	state := errStyle.Render("关闭")
+	if s.Enabled {
+		state = okStyle.Render("开启")
+	}
+	fmt.Fprintf(&b, "  %-14s %s\n", "隧道", state)
+	fmt.Fprintf(&b, "  %-14s %s\n", "cloudflared", firstOr(s.Cloudflared,
+		errStyle.Render("找不到（用 `polarisx tunnel on --download` 装）")))
+	fmt.Fprintf(&b, "  %-14s %s\n", "隧道指向", s.Target)
+	fmt.Fprintf(&b, "  %-14s %s\n", "metrics", s.Metrics)
+	fmt.Fprintf(&b, "  %-14s %s\n", "当前域名", firstOr(s.LiveHost, dimStyle.Render("取不到（服务没跑？）")))
+	fmt.Fprintf(&b, "  %-14s %s\n", "订阅里的域名", firstOr(s.RecordedHost, dimStyle.Render("(空)")))
+	fmt.Fprintf(&b, "  %-14s %s\n", "订阅地址前缀", s.SubBase)
+	for _, u := range panel.TunnelUnitNames() {
+		if v, ok := s.Units[u]; ok {
+			fmt.Fprintf(&b, "  %-14s %s\n", u, firstOr(v, "unknown"))
+		}
+	}
+	if s.Warn != "" {
+		b.WriteString("\n  " + warnStyle.Render("⚠ "+s.Warn) + "\n")
+	}
+	if !s.Enabled && s.Cloudflared == "" {
+		b.WriteString("\n" + dimStyle.Render("  先装 cloudflared：polarisx tunnel on --download") + "\n")
+	}
+	for _, l := range m.tunnelLog {
+		b.WriteString("  " + dimStyle.Render(l) + "\n")
+	}
+	return b.String()
+}
+
+// firstOr 返回 s，空则返回占位（避免到处写 if）。
+func firstOr(s, placeholder string) string {
+	if strings.TrimSpace(s) == "" {
+		return placeholder
+	}
+	return s
 }
