@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=POLARISX_HOME=/usr/local/ixpanel
+Environment=POLARISX_HOME=/var/lib/polarisx
 ExecStart=/usr/local/bin/polarisx web --listen 127.0.0.1:8090
 Restart=always
 RestartSec=2
@@ -13,7 +13,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/usr/local/ixpanel
+ReadWritePaths=/var/lib/polarisx
 
 [Install]
 WantedBy=multi-user.target

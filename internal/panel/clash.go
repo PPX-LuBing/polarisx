@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// ProductName 出现在订阅头部注释里（Python 版是 ixpanel）。
+// ProductName 出现在订阅头部注释里。
 const ProductName = "polarisx"
 
 // yamlQuote 与 Python 版一致：双引号包裹，转义反斜杠与双引号。

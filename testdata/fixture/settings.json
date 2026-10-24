@@ -34,7 +34,7 @@
   "node_name_with_user": false,
   "default_quota_gb": 100,
   "quota_reset_day": 0,
-  "log_file": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/ixpanel.log",
+  "log_file": "/Users/ice/DeepSeekSpace/.work/polarisx/testdata/fixture/polarisx.log",
   "traffic_unit_gib": true,
   "fail2ban_kick": true,
   "verify_config": true,

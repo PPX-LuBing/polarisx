@@ -1,7 +1,4 @@
-// Package panel 是 PolarisX 的核心域：settings / SQLite 存储 / Xray 配置生成。
-//
-// 与 Python 版 ixpanel 的关系：共用同一份 settings.json 与 SQLite schema，
-// 因此换二进制即可接管，无需迁移数据。所有语义以 Python 版为参考实现。
+// Package panel 是 PolarisX 的核心域：settings、SQLite 存储和 Xray 配置生成。
 package panel
 
 import (
@@ -9,12 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strconv"
 	"strings"
 )
 
-// Version 与 Python 版对齐；Go 版接管后按自己的节奏走。
 // Version 是面板版本。声明成 var 而不是 const，是为了让发布流程能用
 // `-ldflags "-X .../internal/panel.Version=v1.5.0"` 把 git tag 注入进来
 // （const 无法被 ldflags 覆盖）。
@@ -23,10 +17,7 @@ var Version = "1.5.0"
 // SubTitleDefault 订阅标题默认模板；{cc}/{asn} 会在生成时替换。
 const SubTitleDefault = "定制·{cc}·{asn}"
 
-// legacySubTitles 老版本默认值，读到就升级成 SubTitleDefault。
-var legacySubTitles = []string{"ix专线", "IX专线"}
-
-// Settings 对应 Python 版的 DEFAULT_SETTINGS（45 个键，键名/默认值逐一对齐）。
+// Settings 是 PolarisX 的持久化设置。
 type Settings struct {
 	XrayBin                string `json:"xray_bin"`
 	XrayConfig             string `json:"xray_config"`
@@ -78,14 +69,11 @@ type Settings struct {
 	AlertWebhook string `json:"alert_webhook"`
 }
 
-// Defaults 返回与 Python 版逐字一致的默认设置。
+// Defaults 返回 PolarisX 的默认设置。
 func Defaults() Settings {
 	home := os.Getenv("POLARISX_HOME")
 	if home == "" {
-		home = os.Getenv("IXPANEL_HOME") // 兼容旧环境变量，便于平滑接管
-	}
-	if home == "" {
-		home = "/usr/local/ixpanel"
+		home = "/var/lib/polarisx"
 	}
 	return Settings{
 		XrayConfig:             "/usr/local/etc/xray/config.json",
@@ -107,7 +95,7 @@ func Defaults() Settings {
 		ClashRules:             "myclash",
 		SubTitle:               SubTitleDefault,
 		DefaultQuotaGB:         100,
-		LogFile:                filepath.Join(home, "ixpanel.log"),
+		LogFile:                filepath.Join(home, "polarisx.log"),
 		TrafficUnitGiB:         true,
 		Fail2banKick:           true,
 		VerifyConfig:           true,
@@ -116,15 +104,12 @@ func Defaults() Settings {
 	}
 }
 
-// Home 返回数据目录（settings.json / panel.db 所在）。
+// Home 返回 PolarisX 数据目录（settings.json / panel.db 所在）。
 func Home() string {
 	if h := os.Getenv("POLARISX_HOME"); h != "" {
 		return h
 	}
-	if h := os.Getenv("IXPANEL_HOME"); h != "" {
-		return h
-	}
-	return "/usr/local/ixpanel"
+	return "/var/lib/polarisx"
 }
 
 // SettingsPath 返回 settings.json 路径。
@@ -133,63 +118,7 @@ func SettingsPath() string { return filepath.Join(Home(), "settings.json") }
 // DBPath 返回 panel.db 路径。
 func DBPath() string { return filepath.Join(Home(), "panel.db") }
 
-// settingsKinds 由结构体标签反射出来（key -> 字段类型），用来做类型容错，
-// 新增字段不用改这里，不会漏。
-var settingsKinds = func() map[string]reflect.Kind {
-	m := map[string]reflect.Kind{}
-	t := reflect.TypeOf(Settings{})
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		name := strings.Split(f.Tag.Get("json"), ",")[0]
-		if name != "" {
-			m[name] = f.Type.Kind()
-		}
-	}
-	return m
-}()
-
-// UnmarshalJSON 容错解析：Python 版 ixpanel set 会把 int/bool 存成字符串
-// （只有 default_quota_gb 和几个布尔键会转换），所以 "1" 与 1 都要能读。
-// 这是信任边界上的必要兼容，不做的话换二进制就起不来。
-func (s *Settings) UnmarshalJSON(b []byte) error {
-	var raw map[string]any
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	for k, v := range raw {
-		str, ok := v.(string)
-		if !ok {
-			continue
-		}
-		switch settingsKinds[k] {
-		case reflect.Int:
-			n, err := strconv.Atoi(strings.TrimSpace(str))
-			if err != nil {
-				n = 0
-			}
-			raw[k] = n
-		case reflect.Bool:
-			raw[k] = truthy(str)
-		}
-	}
-	fixed, err := json.Marshal(raw)
-	if err != nil {
-		return err
-	}
-	type alias Settings
-	return json.Unmarshal(fixed, (*alias)(s))
-}
-
-// truthy 与 Python 版 cmd_set 的判定保持一致。
-func truthy(s string) bool {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
-
-// LoadSettings 读 settings.json；文件不存在则返回默认值。缺的键保留默认值（与 Python 版一致）。
+// LoadSettings 读取 settings.json；文件不存在时返回默认值。
 func LoadSettings() (Settings, error) {
 	s := Defaults()
 	b, err := os.ReadFile(SettingsPath())
@@ -202,17 +131,7 @@ func LoadSettings() (Settings, error) {
 	if err := json.Unmarshal(b, &s); err != nil {
 		return Defaults(), fmt.Errorf("settings.json 解析失败: %w", err)
 	}
-	upgradeLegacy(&s)
 	return s, nil
-}
-
-// upgradeLegacy 把老默认值升级成新的（Python 版同样逻辑）。
-func upgradeLegacy(s *Settings) {
-	for _, old := range legacySubTitles {
-		if s.SubTitle == old {
-			s.SubTitle = SubTitleDefault
-		}
-	}
 }
 
 // SaveSettings 原子写回 settings.json（0600，里面有密钥）。

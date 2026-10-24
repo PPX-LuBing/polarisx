@@ -1,6 +1,4 @@
 // PolarisX —— Xray 多协议落地机面板（北极星）。
-//
-// 与 Python 版 ixpanel 共用同一份 settings.json / panel.db，换二进制即可接管。
 package main
 
 import (
@@ -81,8 +79,6 @@ func main() {
 		err = cmdUninstall(args)
 	case "collect":
 		err = cmdCollect(args)
-	case "migrate":
-		err = cmdMigrate(args)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -141,7 +137,6 @@ func usage() {
                        免域名订阅隧道（cloudflared 临时隧道，域名每次重启会变，
                        由 refresh 定时器写回 sub_base）
   collect [--no-kick]  采集一次流量并做额度检查（给 systemd 定时器用）
-  migrate              检查能否直接接管 Python 版的数据目录（只读）
   doctor               自检（数据库 / 配置 / 节点体检）
   help                 这份帮助
 `)
@@ -1374,36 +1369,6 @@ func cmdCollect(args []string) error {
 	return nil
 }
 
-func cmdMigrate(args []string) error {
-	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
-	_ = fs.Parse(args)
-	st, err := panel.LoadSettings()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("检查 %s 能否被 %s 直接接管（只读，不改任何东西）\n\n", panel.Home(), panel.ProductName)
-	bad := 0
-	for _, it := range panel.CheckCompat(st) {
-		mark := "[ok]  "
-		switch it.Level {
-		case "warn":
-			mark = "[..]  "
-		case "bad":
-			mark = "[!!]  "
-			bad++
-		}
-		fmt.Println(mark + it.Message)
-	}
-	fmt.Println()
-	if bad > 0 {
-		fmt.Println("有阻塞项，先解决再接管。")
-		os.Exit(1)
-	}
-	fmt.Println("可以直接接管：数据库与设置都是同一份，换二进制即可。")
-	fmt.Println("回滚：把 ixpanel 的 systemd 单元起回来（数据没被改过）。")
-	return nil
-}
-
 func cmdWeb(args []string) error {
 	fs := flag.NewFlagSet("web", flag.ExitOnError)
 	listen := fs.String("listen", "127.0.0.1:8090", "监听地址（默认只绑本机）")
@@ -1461,7 +1426,7 @@ func cmdDoctor(args []string) error {
 	}
 	fmt.Printf("polarisx %s   home=%s\n", panel.Version, panel.Home())
 	if _, err := os.Stat(panel.DBPath()); err != nil {
-		fmt.Printf("[!!] 数据库不存在: %s（Python 版接管前请先跑一次 install/deploy）\n", panel.DBPath())
+		fmt.Printf("[!!] 数据库不存在: %s（先运行 polarisx node add 或通过 TUI 创建首个节点）\n", panel.DBPath())
 		return nil
 	}
 	store, err := panel.Open(panel.DBPath())

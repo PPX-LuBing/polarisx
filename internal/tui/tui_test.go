@@ -20,8 +20,7 @@ func newTestModel(t *testing.T) Model {
 	if err != nil {
 		t.Skipf("没有夹具（先跑 python3 tools/mkfixture.py）: %v", err)
 	}
-	// TUI 会读写 settings.json（改告警地址等），测试必须指向临时目录，
-	// 否则会去动真实的 /usr/local/ixpanel
+	// TUI 会读写 settings.json（改告警地址等），测试必须指向临时目录。
 	dir := t.TempDir()
 	t.Setenv("POLARISX_HOME", dir)
 	db := filepath.Join(dir, "panel.db")

@@ -294,6 +294,15 @@ func buildSets(pairs, allowed []string, intFields map[string]bool) ([]string, []
 	return sets, vals, nil
 }
 
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // KickUser 把用户从运行中的 xray 摘掉（在线连接一并断开）。
 func (s *Store) KickUser(st Settings, u User) error {
 	// 老版本 xray 没有 rmu；拿不到 API 就静默跳过（停用状态仍会写进配置，重启后生效）

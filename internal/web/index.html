@@ -269,7 +269,7 @@ async function load() {
       <td class="num" data-l="额度">${u.quota_bytes ? human(u.quota_bytes) : "不限"}</td>
       <td class="num" data-l="到期">${u.expire_at ? esc(u.expire_at) : "不过期"}</td>
       <td data-l="状态">${u.enable ? '<span class="ok">启用</span>' : '<span class="bad">' + esc(u.disabled_reason || "已停用") + "</span>"}</td>
-    </tr>`).join("") : '<tr><td class="empty">还没有用户。用 ixpanel user add 或 TUI 建一个。</td></tr>';
+    </tr>`).join("") : '<tr><td class="empty">还没有用户。用 polarisx user add 或 TUI 建一个。</td></tr>';
 
   $("#nodes").innerHTML = d.nodes.length ? d.nodes.map((n) => `
     <tr>

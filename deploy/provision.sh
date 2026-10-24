@@ -468,7 +468,7 @@ if [ "$SUB_MODE" != "off" ]; then
 fi
 TOKEN="$(python3 - <<'PY' 2>/dev/null || true
 import sqlite3, os, sys, json
-home = os.environ.get("POLARISX_HOME") or "/usr/local/ixpanel"
+home = os.environ.get("POLARISX_HOME") or "/var/lib/polarisx"
 try:
     c = sqlite3.connect(os.path.join(home, "panel.db"))
     r = c.execute("select token from users order by id limit 1").fetchone()

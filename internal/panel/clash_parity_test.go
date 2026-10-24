@@ -10,7 +10,8 @@ import (
 )
 
 // TestClashParity 比对 Clash/mihomo 订阅全文（3 个用户 × 6 个预设 = 18 份）。
-// 唯一允许的差异：头部注释里的产品名（ixpanel -> polarisx），已显式归一化。
+// Fixtures were recorded by an earlier generator; normalize only its product
+// prefix before comparing the generated PolarisX subscription.
 func TestClashParity(t *testing.T) {
 	root := filepath.Join("..", "..", "testdata")
 	raw, err := os.ReadFile(filepath.Join(root, "parity", "subscriptions.json"))
@@ -72,7 +73,7 @@ func clashDiff(got, want string) string {
 	norm := func(s string) string {
 		lines := strings.Split(s, "\n")
 		if len(lines) > 0 && strings.HasPrefix(lines[0], "# ") {
-			// 只归一化产品名（ixpanel -> polarisx），幂等：两边都跑也只剩一个前缀
+			// Keep fixture comparison focused on protocol output, not generator name.
 			if i := strings.Index(lines[0], " subscription for "); i > 0 {
 				lines[0] = "# polarisx" + lines[0][i:]
 			}

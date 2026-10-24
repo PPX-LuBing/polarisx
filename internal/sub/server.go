@@ -1,5 +1,4 @@
-// Package sub 是订阅 HTTP 服务：与 Python 版 ixpanel 的 SubHandler 行为对齐
-// （路径、header、正文、停用提示、HEAD 支持），客户端无感。
+// Package sub 是 PolarisX 的订阅 HTTP 服务。
 package sub
 
 import (
@@ -149,7 +148,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(skipped) > 0 {
-			headers["X-Ixpanel-Skipped-Nodes"] = strings.Join(skipped, ",")
+			headers["X-PolarisX-Skipped-Nodes"] = strings.Join(skipped, ",")
 		}
 		headers["Content-Disposition"] = panel.ContentDisposition(title, ".json")
 		writeBody(w, 200, body, "application/json; charset=utf-8", headers)

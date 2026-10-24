@@ -88,13 +88,9 @@ func TestHTTPParity(t *testing.T) {
 			if resp.StatusCode != exp.Status {
 				t.Errorf("状态码 %d，期望 %d", resp.StatusCode, exp.Status)
 			}
-			// 期望正文先把产品名归一化（ixpanel -> polarisx，长度也会差 1 字节）
 			wantBody := ""
 			if exp.Body != nil {
-				wantBody = strings.Replace(*exp.Body, "ixpanel "+panel.Version+" ok",
-					panel.ProductName+" "+panel.Version+" ok", 1)
-				wantBody = strings.Replace(wantBody, "# ixpanel subscription for",
-					"# "+panel.ProductName+" subscription for", 1)
+				wantBody = *exp.Body
 			}
 			for k, wantV := range exp.Headers {
 				gotV := resp.Header.Get(k)
