@@ -108,11 +108,26 @@ func SelfTestNode(s *Store, st Settings, bin string, n Node, u User,
 	}
 	res.Latency = fmt.Sprintf("%dms", time.Since(start).Milliseconds())
 	// 2) 出口 IP（确认真的从落地机出去，而不是直连）
-	if ip, err := curlBody(proxy, "https://api.ipify.org", timeout); err == nil {
-		res.ExitIP = strings.TrimSpace(ip)
+	ip, err := curlBody(proxy, "https://api.ipify.org", timeout)
+	if err != nil {
+		res.Err = "出口 IP 探测失败: " + err.Error()
+		return res
+	}
+	res.ExitIP, err = parseExitIP(ip)
+	if err != nil {
+		res.Err = "出口 IP 探测失败: " + err.Error()
+		return res
 	}
 	res.OK = true
 	return res
+}
+
+func parseExitIP(raw string) (string, error) {
+	ip := strings.TrimSpace(raw)
+	if net.ParseIP(ip) == nil {
+		return "", fmt.Errorf("返回内容不是有效 IP")
+	}
+	return ip, nil
 }
 
 // SelfTestAll 按顺序实测多个节点，每个节点用一个递增的 socks 端口。

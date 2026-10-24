@@ -117,6 +117,19 @@ func TestSelfTestAllReportsPerNode(t *testing.T) {
 	}
 }
 
+func TestParseExitIP(t *testing.T) {
+	for _, raw := range []string{"203.0.113.9\n", "2001:db8::9"} {
+		if got, err := parseExitIP(raw); err != nil || got == "" {
+			t.Errorf("有效出口 IP 应通过: raw=%q got=%q err=%v", raw, got, err)
+		}
+	}
+	for _, raw := range []string{"", "not-an-ip", "203.0.113.9 extra"} {
+		if got, err := parseExitIP(raw); err == nil || got != "" {
+			t.Errorf("无效出口 IP 应失败: raw=%q got=%q err=%v", raw, got, err)
+		}
+	}
+}
+
 // 隧道状态：不联网也要能读出配置层面的状态（liveTimeout=0 表示不读 metrics 端口）。
 func TestTunnelStatusWithoutNetwork(t *testing.T) {
 	_, st := selftestStore(t)
@@ -207,5 +220,31 @@ func TestTunnelOnWithoutCloudflared(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("错误里应给出可执行建议 %q: %v", want, err)
 		}
+	}
+}
+
+func TestTunnelOnFailureRollsBackSettings(t *testing.T) {
+	store, st := selftestStore(t)
+	cf := filepath.Join(t.TempDir(), "cloudflared")
+	if err := os.WriteFile(cf, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st.CloudflaredBin = cf
+	st.SubBase = "http://127.0.0.1:61887"
+	st.SubTunnel = false
+	st.SubTunnelPrevBase = ""
+	_, err := TunnelOn(context.Background(), store, st, false, 1, nil)
+	if err == nil {
+		t.Fatal("metrics 不可用时开启隧道应失败")
+	}
+	back, readErr := LoadSettings()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if back.SubTunnel || back.SubTunnelHost != "" || back.SubTunnelPrevBase != "" {
+		t.Fatalf("开启失败后不应留下半开启状态: %+v", back)
+	}
+	if back.SubBase != st.SubBase {
+		t.Fatalf("开启失败后应保留原订阅前缀: got=%q want=%q", back.SubBase, st.SubBase)
 	}
 }
