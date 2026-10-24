@@ -682,6 +682,12 @@ func TestTUISettingsEdit(t *testing.T) {
 	if st.QuotaResetDay != 15 {
 		t.Errorf("重置日没写进设置: %d", st.QuotaResetDay)
 	}
+	if err := applySetting(&st, "clash_rules", "unknown"); err == nil {
+		t.Error("未知分流预设应被拒绝")
+	}
+	if err := applySetting(&st, "outbound_domain_strategy", "unknown"); err == nil {
+		t.Error("未知出口 IP 族应被拒绝")
+	}
 	// 白名单之外的键必须拒绝
 	if err := applySetting(&st, "restart_cmd", "rm -rf /"); err == nil {
 		t.Error("TUI 不该能改 restart_cmd")
