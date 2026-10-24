@@ -135,14 +135,24 @@ func (s *Store) AutoResetMonthly(st Settings, today time.Time) (int, error) {
 	}
 	n := 0
 	for _, u := range users {
-		if last, ok := dateOrNone(u.LastReset); ok && !last.Before(due) {
+		last, hasLast := dateOrNone(u.LastReset)
+		if hasLast && !last.Before(due) {
+			continue // 本周期已经重置过
+		}
+		// 没有重置记录：新建用户，或刚从旧版迁移过来（旧版不记这个字段）。
+		// 这种情况只记下本周期、**不清零**——否则迁移后第一次采集会把已有用量抹掉
+		// （真踩过：从旧面板迁移过来的机器，第一次 collect 就把用量清零了）。
+		// 被超额停用的用户不在此列：那种情况本来就要在新周期恢复，走下面的正常重置。
+		if !hasLast && u.Enable == 1 {
+			if err := s.recordLastReset(u.ID, due); err != nil {
+				return n, err
+			}
 			continue
 		}
 		if err := s.ResetUsage(u); err != nil {
 			return n, err
 		}
-		if _, err := s.db.Exec("UPDATE users SET last_reset=? WHERE id=?",
-			due.Format("2006-01-02"), u.ID); err != nil {
+		if err := s.recordLastReset(u.ID, due); err != nil {
 			return n, err
 		}
 		if u.Enable == 0 {
@@ -153,6 +163,13 @@ func (s *Store) AutoResetMonthly(st Settings, today time.Time) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+// recordLastReset 记下"本周期已重置"，用于幂等。
+func (s *Store) recordLastReset(id int64, due time.Time) error {
+	_, err := s.db.Exec("UPDATE users SET last_reset=? WHERE id=?",
+		due.Format("2006-01-02"), id)
+	return err
 }
 
 var statNameRe = regexp.MustCompile(`name:\s*"([^"]+)"`)

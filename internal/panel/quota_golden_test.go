@@ -44,6 +44,9 @@ func TestQuotaGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// UPDATE_GOLDEN=1 时把实测值写回夹具（唯一更新入口）。
+	// 没有这个分支的话，行为一旦有意改变就只能手改夹具——那等于把测试改瞎。
+	updating := os.Getenv("UPDATE_GOLDEN") == "1"
 
 	t.Run("human-bytes", func(t *testing.T) {
 		for k, exp := range want.HumanBytes {
@@ -51,7 +54,10 @@ func TestQuotaGolden(t *testing.T) {
 			if _, err := fmtSscan(k, &n); err != nil {
 				t.Fatal(err)
 			}
-			if got := HumanBytes(n); got != exp {
+			got := HumanBytes(n)
+			if updating {
+				want.HumanBytes[k] = got
+			} else if got != exp {
 				t.Errorf("%s -> %q，期望 %q", k, got, exp)
 			}
 		}
@@ -64,7 +70,10 @@ func TestQuotaGolden(t *testing.T) {
 			if _, err := fmtSscan(k, &gb); err != nil {
 				t.Fatal(err)
 			}
-			if got := QuotaBytes(User{QuotaGB: gb}, st); got != exp {
+			got := QuotaBytes(User{QuotaGB: gb}, st)
+			if updating {
+				want.QuotaBytes[k] = got
+			} else if got != exp {
 				t.Errorf("GiB %s GB -> %d，期望 %d", k, got, exp)
 			}
 		}
@@ -75,7 +84,10 @@ func TestQuotaGolden(t *testing.T) {
 			if _, err := fmtSscan(k, &gb); err != nil {
 				t.Fatal(err)
 			}
-			if got := QuotaBytes(User{QuotaGB: gb}, si); got != exp {
+			got := QuotaBytes(User{QuotaGB: gb}, si)
+			if updating {
+				want.QuotaBytesSI[k] = got
+			} else if got != exp {
 				t.Errorf("SI %s GB -> %d，期望 %d", k, got, exp)
 			}
 		}
@@ -89,7 +101,10 @@ func TestQuotaGolden(t *testing.T) {
 			}
 			st := Defaults()
 			st.QuotaResetDay = v
-			if got := ResetDayOfMonth(st); got != exp {
+			got := ResetDayOfMonth(st)
+			if updating {
+				want.ResetDay[k] = got
+			} else if got != exp {
 				t.Errorf("quota_reset_day=%s -> %d，期望 %d", k, got, exp)
 			}
 		}
@@ -107,7 +122,9 @@ func TestQuotaGolden(t *testing.T) {
 				gotStr = got.Format("2006-01-02")
 			}
 			exp, _ := expAny.(string)
-			if gotStr != exp {
+			if updating {
+				want.LastResetDue[day] = gotStr
+			} else if gotStr != exp {
 				t.Errorf("today=%s -> %q，期望 %q", day, gotStr, exp)
 			}
 		}
@@ -132,6 +149,10 @@ func TestQuotaGolden(t *testing.T) {
 			}
 			got := ParseStats(text)
 			gotNorm := normalize(t, mapToAny(got))
+			if updating {
+				want.ParseStats[name] = gotNorm
+				continue
+			}
 			expNorm := normalize(t, expAny)
 			if !jsonEqual(gotNorm, expNorm) {
 				t.Errorf("%s:\n  go   : %v\n  golden: %v", name, got, expAny)
@@ -171,6 +192,8 @@ func TestQuotaGolden(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := UserinfoHeader(u, st)
+			// 注意：userinfo 不参与自动更新。expire 是绝对时间戳，取决于生成时的时区，
+			// 而下面的比对已经把它折算成"代表的日期"了——写回只会把时区差异固化进夹具。
 			gU, gD, gT, gE := parseUserinfo(t, got)
 			wU, wD, wT, wE := parseUserinfo(t, exp)
 			if gU != wU || gD != wD || gT != wT {
@@ -197,21 +220,28 @@ func TestQuotaGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n != want.AutoResetCount {
-			t.Errorf("重置人数 %d，期望 %d", n, want.AutoResetCount)
-		}
-		if d := usersDiff(t, store, want.AfterReset); d != "" {
-			t.Errorf("重置后用户表不一致: %s", d)
-		}
+		afterFirst := usersSnapshot(t, store)
 		again, err := store.AutoResetMonthly(st, today)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if again != want.AutoResetAgain {
-			t.Errorf("第二次重置 %d 人，期望 %d（幂等）", again, want.AutoResetAgain)
-		}
-		if d := usersDiff(t, store, want.AfterResetAgain); d != "" {
-			t.Errorf("第二次重置后不一致: %s", d)
+		afterSecond := usersSnapshot(t, store)
+		if updating {
+			want.AutoResetCount, want.AutoResetAgain = n, again
+			want.AfterReset, want.AfterResetAgain = afterFirst, afterSecond
+		} else {
+			if n != want.AutoResetCount {
+				t.Errorf("重置人数 %d，期望 %d", n, want.AutoResetCount)
+			}
+			if d := usersDiffSnap(t, afterFirst, want.AfterReset); d != "" {
+				t.Errorf("重置后用户表不一致: %s", d)
+			}
+			if again != want.AutoResetAgain {
+				t.Errorf("第二次重置 %d 人，期望 %d（幂等）", again, want.AutoResetAgain)
+			}
+			if d := usersDiffSnap(t, afterSecond, want.AfterResetAgain); d != "" {
+				t.Errorf("第二次重置后不一致: %s", d)
+			}
 		}
 	})
 
@@ -229,18 +259,40 @@ func TestQuotaGolden(t *testing.T) {
 			"added_up": rep.AddedUp, "added_down": rep.AddedDown,
 			"disabled": disabledAny(rep), "warned": warnedAny(rep),
 		})
-		expRep := normalize(t, want.CollectReport)
-		// golden 的 report 还带 errors 字段
-		if m, ok := expRep.(map[string]any); ok {
-			delete(m, "errors")
-		}
-		if !jsonEqual(gotRep, expRep) {
-			t.Errorf("采集报告不一致:\n  go   : %s\n  golden: %s", mustJSON(gotRep), mustJSON(expRep))
-		}
-		if d := usersDiff(t, store, want.AfterCollect); d != "" {
-			t.Errorf("采集后用户表不一致: %s", d)
+		snap := usersSnapshot(t, store)
+		if updating {
+			want.CollectReport, want.AfterCollect = gotRep, snap
+		} else {
+			expRep := normalize(t, want.CollectReport)
+			// golden 的 report 还带 errors 字段
+			if m, ok := expRep.(map[string]any); ok {
+				delete(m, "errors")
+			}
+			if !jsonEqual(gotRep, expRep) {
+				t.Errorf("采集报告不一致:\n  go   : %s\n  golden: %s", mustJSON(gotRep), mustJSON(expRep))
+			}
+			if d := usersDiffSnap(t, snap, want.AfterCollect); d != "" {
+				t.Errorf("采集后用户表不一致: %s", d)
+			}
 		}
 	})
+
+	if updating {
+		// 夹具里有些键这个 struct 没建模（raw_stats / settings）。直接序列化 struct
+		// 会把它们丢掉，所以先读回原始 map，只覆盖 struct 管的那些键。
+		path := filepath.Join(root, "golden", "quota.json")
+		merged := map[string]any{}
+		if old, err := os.ReadFile(path); err == nil {
+			_ = json.Unmarshal(old, &merged)
+		}
+		own, _ := json.Marshal(want)
+		var modeled map[string]any
+		_ = json.Unmarshal(own, &modeled)
+		for k, v := range modeled {
+			merged[k] = v
+		}
+		writeGoldenJSON(t, path, merged)
+	}
 }
 
 // parseUserinfo 拆 "upload=..; download=..; total=..; expire=.."。
@@ -299,8 +351,8 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-// usersDiff 把 Go 侧用户表与 golden 期望逐字段比对。
-func usersDiff(t *testing.T, store *Store, want []any) string {
+// usersSnapshot 取当前用户表的快照（与 golden 里 after_reset/after_collect 同形）。
+func usersSnapshot(t *testing.T, store *Store) []any {
 	t.Helper()
 	rows, err := store.DB().Query("SELECT id, name, uuid, password, token, quota_gb, used_up," +
 		" used_down, expire_at, enable, note, disabled_reason, last_reset, created" +
@@ -327,6 +379,19 @@ func usersDiff(t *testing.T, store *Store, want []any) string {
 			"last_reset": lastReset, "created": created,
 		})
 	}
+	return mapToAnyList(normalize(t, got))
+}
+
+func mapToAnyList(v any) []any {
+	if l, ok := v.([]any); ok {
+		return l
+	}
+	return nil
+}
+
+// usersDiffSnap 比对两份快照，返回第一处差异（空 = 一致）。
+func usersDiffSnap(t *testing.T, got, want []any) string {
+	t.Helper()
 	g, w := normalize(t, got), normalize(t, want)
 	if jsonEqual(g, w) {
 		return ""

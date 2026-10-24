@@ -2,8 +2,8 @@
   "after_collect": [
     {
       "created": "2026-01-01T00:00:00",
-      "disabled_reason": "",
-      "enable": 1,
+      "disabled_reason": "流量超额 (1.17 GB / 1.00 GB)",
+      "enable": 0,
       "expire_at": "",
       "id": 1,
       "last_reset": "2026-03-05",
@@ -12,8 +12,8 @@
       "password": "pw-over-reset",
       "quota_gb": 1,
       "token": "tok-over-reset",
-      "used_down": 0,
-      "used_up": 0,
+      "used_down": 629145600,
+      "used_up": 629145600,
       "uuid": "uuid-over-reset"
     },
     {
@@ -108,8 +108,8 @@
       "password": "pw-fresh",
       "quota_gb": 5,
       "token": "tok-fresh",
-      "used_down": 0,
-      "used_up": 0,
+      "used_down": 700,
+      "used_up": 500,
       "uuid": "uuid-fresh"
     }
   ],
@@ -126,8 +126,8 @@
       "password": "pw-over-reset",
       "quota_gb": 1,
       "token": "tok-over-reset",
-      "used_down": 0,
-      "used_up": 0,
+      "used_down": 629145600,
+      "used_up": 629145600,
       "uuid": "uuid-over-reset"
     },
     {
@@ -240,8 +240,8 @@
       "password": "pw-over-reset",
       "quota_gb": 1,
       "token": "tok-over-reset",
-      "used_down": 0,
-      "used_up": 0,
+      "used_down": 629145600,
+      "used_up": 629145600,
       "uuid": "uuid-over-reset"
     },
     {
@@ -342,11 +342,15 @@
     }
   ],
   "auto_reset_again": 0,
-  "auto_reset_count": 4,
+  "auto_reset_count": 1,
   "collect_report": {
     "added_down": 700,
     "added_up": 600,
     "disabled": [
+      {
+        "name": "over-reset",
+        "reason": "流量超额 (1.17 GB / 1.00 GB)"
+      },
       {
         "name": "over-now",
         "reason": "流量超额 (1.07 GB / 1.00 GB)"
@@ -356,7 +360,6 @@
         "reason": "已过期 (2026-01-01)"
       }
     ],
-    "errors": [],
     "warned": [
       {
         "name": "warn",
