@@ -2,7 +2,6 @@ package panel
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -75,11 +74,20 @@ func TestBuildClientOutbound(t *testing.T) {
 			t.Errorf("hysteria 的 alpn 应为 h3，实际 %v", tls["alpn"])
 		}
 		s := out["settings"].(map[string]any)
-		if s["version"] != 2 || s["address"] != "1.2.3.4" || s["port"] != 8443 {
-			t.Errorf("hysteria 出站字段不对: %+v", s)
+		if s["address"] != "1.2.3.4" || s["port"] != 8443 {
+			t.Errorf("hysteria 出站的 server 字段不对: %+v", s)
 		}
-		if s["auth"] == "" || s["auth"] == nil {
-			t.Error("hysteria 必须带每用户 PSK 作为 auth")
+		// auth 必须在传输层：Xray 出站 settings 里没有 auth 字段，写那儿等于没写
+		// （曾经因此让客户端发空 auth，服务端回 auth failed code 404）
+		if _, bad := s["auth"]; bad {
+			t.Error("auth 不该放在出站 settings 里（Xray 那里没有这个字段）")
+		}
+		hs, ok := ss["hysteriaSettings"].(map[string]any)
+		if !ok {
+			t.Fatalf("缺 hysteriaSettings: %+v", ss)
+		}
+		if hs["auth"] == "" || hs["auth"] == nil {
+			t.Error("每用户 PSK 必须放在 hysteriaSettings.auth")
 		}
 	})
 
@@ -147,12 +155,9 @@ func TestBuildClientOutbound(t *testing.T) {
 // selftest 的跳过规则：hy2 用 Xray 客户端测不了（实测三种 auth 形式都握不上手，
 // 而 mihomo 同一时刻一次就通），必须如实跳过而不是报"节点不通"。
 func TestSelfTestSkipped(t *testing.T) {
-	if why := SelfTestSkipped(Node{Proto: "hysteria"}); why == "" {
-		t.Error("hysteria 应给出跳过原因")
-	} else if !strings.Contains(why, "服务端正常") {
-		t.Errorf("跳过原因要说清不是服务端问题: %s", why)
-	}
-	for _, p := range []string{"vless", "vmess", "trojan", "shadowsocks"} {
+	// 目前所有协议都能测。hysteria2 曾经被跳过，根因是我的配置 bug（auth 放错层），
+	// 读 Xray 源码确认后已修，不该再跳过任何协议。
+	for _, p := range []string{"vless", "vmess", "trojan", "shadowsocks", "hysteria"} {
 		if why := SelfTestSkipped(Node{Proto: p}); why != "" {
 			t.Errorf("%s 不该跳过: %s", p, why)
 		}

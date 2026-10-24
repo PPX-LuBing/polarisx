@@ -25,6 +25,7 @@ func (s *Store) BuildClientOutbound(n Node, u User, st Settings) (map[string]any
 	}
 
 	out := map[string]any{"tag": "selftest-" + n.Tag}
+	hysteriaAuth := ""
 	switch n.Proto {
 	case "vless":
 		user := map[string]any{"id": u.UUID, "encryption": "none"}
@@ -57,13 +58,18 @@ func (s *Store) BuildClientOutbound(n Node, u User, st Settings) (map[string]any
 		if err != nil {
 			return nil, err
 		}
+		// 注意：Xray 出站 settings 里**没有 auth 字段**（只有 server/address/port）。
+		// hy2 的 auth 属于传输层，必须写进 streamSettings.hysteriaSettings.auth，
+		// 否则客户端会发空 auth，服务端回 `auth failed code 404`。
+		// （这个是读 Xray 源码确认的：transport/internet/hysteria/config.proto 的 Config.auth）
+		hysteriaAuth = key
 		out["protocol"] = "hysteria"
-		out["settings"] = map[string]any{"version": 2, "address": addr, "port": port, "auth": key}
+		out["settings"] = map[string]any{"version": 2, "address": addr, "port": port}
 	default:
 		return nil, fmt.Errorf("不支持的协议: %s", n.Proto)
 	}
 
-	stream, err := s.clientStream(n, st)
+	stream, err := s.clientStream(n, st, hysteriaAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +80,7 @@ func (s *Store) BuildClientOutbound(n Node, u User, st Settings) (map[string]any
 }
 
 // clientStream 生成客户端的 streamSettings（与服务端不同：reality 用公钥、tls 用 pin）。
-func (s *Store) clientStream(n Node, st Settings) (map[string]any, error) {
+func (s *Store) clientStream(n Node, st Settings, hysteriaAuth string) (map[string]any, error) {
 	network := n.Net
 	if network == "" {
 		network = "tcp"
@@ -138,7 +144,12 @@ func (s *Store) clientStream(n Node, st Settings) (map[string]any, error) {
 	case "grpc":
 		stream["grpcSettings"] = map[string]any{"serviceName": n.GRPCService}
 	case "hysteria":
-		stream["hysteriaSettings"] = map[string]any{"version": 2}
+		// 客户端的 auth 在这里（不在出站 settings 里）
+		hs := map[string]any{"version": 2}
+		if hysteriaAuth != "" {
+			hs["auth"] = hysteriaAuth
+		}
+		stream["hysteriaSettings"] = hs
 	}
 	return stream, nil
 }
@@ -154,18 +165,13 @@ type SelfTestResult struct {
 	Err     string `json:"err,omitempty"`
 }
 
-// SelfTestSkipped 说明为什么有些节点不能用 selftest 测。
+// SelfTestSkipped 说明为什么某些节点不能用 selftest 测。
 //
-// hysteria2：Xray 自带的 hy2 **客户端**在当前环境连自家 hy2 服务端都握不上手
-// （实测：UUID 形式 auth、原始 base64 auth、base64 解码后的原始字节三种都报
-// `auth failed code 404`；同一时刻 mihomo 连同一个服务端一次就通）。
-// 所以这不是服务端问题，而是 Xray 客户端侧的限制——如实跳过，不假装失败。
-func SelfTestSkipped(n Node) string {
-	if n.Proto == "hysteria" {
-		return "跳过：Xray 的 hysteria2 客户端无法完成握手（服务端正常，可用 mihomo 等客户端验证）"
-	}
-	return ""
-}
+// 目前没有需要跳过的协议。曾经以为 hysteria2 不行——那是**我的配置 bug**：
+// hy2 的 auth 属于传输层（streamSettings.hysteriaSettings.auth），Xray 出站的
+// settings 里根本没有 auth 字段，所以客户端一直在发空 auth，服务端回 404。
+// 读 Xray 源码（transport/internet/hysteria/config.proto 的 Config.auth）确认后已修。
+func SelfTestSkipped(n Node) string { return "" }
 
 // SelfTestConfig 组装"本机起客户端测这个节点"用的完整 xray 配置。
 func (s *Store) SelfTestConfig(n Node, u User, st Settings, socksPort int) (map[string]any, error) {

@@ -84,10 +84,11 @@ polarisx selftest --json
 字段细节也在这里被钉住（比如自签证书必须 `pinnedPeerCertSha256` —— Xray 26 已移除
 `allowInsecure`；SS2022 的 method 不能去掉 `2022-` 前缀）。
 
-**hysteria2 会被如实跳过**：Xray 自带的 hy2 客户端在当前环境连自家 hy2 服务端都握不上手
-（实测 UUID 形式 auth、原始 base64 auth、base64 解码后的原始字节三种都报
-`auth failed code 404`；同一时刻 mihomo 连同一个服务端一次就通）。这是 Xray 客户端侧的
-限制，不是服务端问题，所以标记为"跳过"而不是"不通"。
+**hysteria2 的 auth 必须放在传输层**：Xray 出站的 `settings` 里**没有 auth 字段**（只有
+server/address/port），hy2 的 auth 属于 `streamSettings.hysteriaSettings.auth`
+（见 Xray 源码 `transport/internet/hysteria/config.proto` 的 `Config.auth`）。
+放错地方的话客户端会发**空 auth**，服务端回 `auth failed code 404`——而且报错完全不提
+"字段放错了"，很容易误判成"Xray 客户端不支持"。
 
 ## TUI 写操作
 
