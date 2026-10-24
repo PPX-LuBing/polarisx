@@ -28,8 +28,15 @@ var (
 	headerStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
 	pageStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
 	selectedRowStyle = lipgloss.NewStyle().Background(lipgloss.Color("236"))
-	statStyle        = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("238")).Padding(0, 1)
+	// Status badges stay on one line. Mature Charmbracelet UIs use a flat
+	// status bar rather than a bordered box for every metric, which preserves
+	// vertical space on SSH terminals.
+	statStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("236")).Padding(0, 1)
+	menuItemStyle = lipgloss.NewStyle().PaddingLeft(1).
+			Border(lipgloss.Border{Left: " "}, false, false, false, true)
+	menuActiveStyle = menuItemStyle.BorderStyle(lipgloss.Border{Left: "┃"}).
+			BorderForeground(lipgloss.Color("81")).Bold(true).Foreground(lipgloss.Color("81"))
 )
 
 // view 是当前页面。
@@ -446,9 +453,9 @@ func (m Model) menuView() string {
 	for i, it := range menuItems {
 		label := fmt.Sprintf("%d  %s", i+1, it)
 		if i == m.cursor {
-			lines = append(lines, selectedRowStyle.Render(selStyle.Render("▸ "+label)))
+			lines = append(lines, menuActiveStyle.Render("▸ "+label))
 		} else {
-			lines = append(lines, "  "+label)
+			lines = append(lines, menuItemStyle.Render(label))
 		}
 	}
 	return boxStyle.Width(max(24, m.width-4)).Render(strings.Join(lines, "\n")) + "\n"
