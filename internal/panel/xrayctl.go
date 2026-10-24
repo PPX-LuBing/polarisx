@@ -118,7 +118,71 @@ func WriteConfig(st Settings, cfg map[string]any, path string, verify bool) erro
 			return err
 		}
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// 只对"真正的配置路径"调整属主；导出到别处的配置不动别人的文件。
+	if path == st.XrayConfig {
+		EnsureXrayAccess(st, path)
+	}
+	return nil
+}
+
+// xrayServiceUser 与 chownFile 做成变量，便于测试注入。
+var (
+	xrayServiceUser = func() string {
+		out, err := exec.Command("systemctl", "show", "-p", "User", "--value", "xray").Output()
+		if err != nil {
+			return "" // 没有 systemd / 没有 xray 单元：判断不了就不动
+		}
+		return strings.TrimSpace(string(out))
+	}
+	chownFile = os.Chown
+	chmodPath = os.Chmod
+)
+
+// EnsureXrayAccess 保证 xray 服务**实际运行的身份**能读到配置、能写日志。
+//
+// 根因：配置是 0600 root，而官方 Xray-install 建的单元是 User=xray——xray 起不来，
+// 日志里只有 permission denied；更麻烦的是**每次重装/升级 xray 都会重演**
+// （安装脚本会重写单元）。所以这里不依赖单元里的 User 是什么：写完配置就把属主
+// 交给服务实际使用的用户（仍保持 0600，最小权限），日志同样处理。
+func EnsureXrayAccess(st Settings, configPath string) {
+	who := xrayServiceUser()
+	if who == "" || who == "root" {
+		return // 以 root 运行（或判断不了）：0600 root 本来就能读，什么都不用做
+	}
+	u, err := user.Lookup(who)
+	if err != nil {
+		return // 用户不存在：不猜，交给 doctor 提示
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return
+	}
+
+	// 配置：属主交给服务用户，权限仍 0600
+	if err := chownFile(configPath, uid, gid); err != nil {
+		return
+	}
+	_ = chmodPath(configPath, 0o600)
+
+	// 日志：xray 也要能写。日志在数据目录里（默认 0700），所以还要让该目录
+	// 可"穿越"——只加 x 不加 r：能进目录写自己的日志，但列不出目录内容。
+	logPath := filepath.Join(Home(), "xray-error.log")
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+		f.Close()
+		_ = chownFile(logPath, uid, gid)
+	}
+	if home := Home(); home != "" {
+		if fi, err := os.Stat(home); err == nil && fi.Mode().Perm()&0o001 == 0 {
+			_ = chmodPath(home, fi.Mode().Perm()|0o001)
+		}
+	}
 }
 
 // RestartXray 按 settings.restart_cmd 重启 xray。
