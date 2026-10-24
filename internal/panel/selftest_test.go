@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,5 +114,98 @@ func TestSelfTestAllReportsPerNode(t *testing.T) {
 	res = SelfTestAll(store, st, fake, nodes[:1], "", 18080, 3*time.Second)
 	if len(res) != 1 || !strings.Contains(res[0].Err, "没有可用这个节点的启用用户") {
 		t.Errorf("挑不到用户时应如实报出: %+v", res)
+	}
+}
+
+// 隧道状态：不联网也要能读出配置层面的状态（liveTimeout=0 表示不读 metrics 端口）。
+func TestTunnelStatusWithoutNetwork(t *testing.T) {
+	_, st := selftestStore(t)
+	st.SubTunnel = true
+	st.SubTunnelTarget = "127.0.0.1:8080"
+	st.SubTunnelMetrics = "127.0.0.1:61888"
+	st.SubTunnelHost = ""
+	st.SubBase = "https://example.trycloudflare.com"
+
+	s := TunnelStatus(st, 0)
+	if !s.Enabled {
+		t.Error("SubTunnel=true 时状态应为开启")
+	}
+	if s.Target != st.SubTunnelTarget || s.Metrics != st.SubTunnelMetrics {
+		t.Errorf("指向/metrics 应回显设置: %+v", s)
+	}
+	if s.SubBase != st.SubBase {
+		t.Errorf("订阅前缀应回显设置: %q", s.SubBase)
+	}
+	if s.LiveHost != "" {
+		t.Errorf("liveTimeout=0 时不该去读 metrics: %q", s.LiveHost)
+	}
+	// 开着隧道但订阅地址还没切过去 → 要给出可执行的提醒
+	if !strings.Contains(s.Warn, "订阅地址还没切到隧道") {
+		t.Errorf("应提示订阅地址未切换: %q", s.Warn)
+	}
+	// 关掉隧道就不该有这类提醒
+	st.SubTunnel = false
+	if got := TunnelStatus(st, 0); got.Warn != "" {
+		t.Errorf("关闭状态不该有提醒: %q", got.Warn)
+	}
+}
+
+// 关闭隧道：订阅地址要还原成开启前的前缀，并记一条事件。
+func TestTunnelOffRestoresSubBase(t *testing.T) {
+	store, st := selftestStore(t)
+	st.SubTunnel = true
+	st.SubTunnelHost = "abc.trycloudflare.com"
+	st.SubBase = "https://abc.trycloudflare.com"
+	st.SubTunnelPrevBase = "http://1.2.3.4:61887"
+	if err := SaveSettings(st); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	got, err := TunnelOff(store, st, func(s string) { lines = append(lines, s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SubTunnel || got.SubTunnelHost != "" || got.SubTunnelPrevBase != "" {
+		t.Errorf("关闭后应清空隧道状态: %+v", got)
+	}
+	if got.SubBase != "http://1.2.3.4:61887" {
+		t.Errorf("订阅前缀应还原，实际 %q", got.SubBase)
+	}
+	// 落盘了
+	back, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.SubBase != "http://1.2.3.4:61887" || back.SubTunnel {
+		t.Errorf("设置没写盘: %+v", back)
+	}
+	if len(lines) == 0 {
+		t.Error("应输出一句说明（CLI 要打印，TUI 要显示）")
+	}
+	evs, _ := store.Events(3)
+	found := false
+	for _, e := range evs {
+		if strings.Contains(e.Message, "关闭免域名订阅隧道") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("关闭隧道应记一条事件")
+	}
+}
+
+// 没有 cloudflared 时开启隧道：要给出三条可执行的建议，而不是含糊报错。
+func TestTunnelOnWithoutCloudflared(t *testing.T) {
+	store, st := selftestStore(t)
+	st.CloudflaredBin = filepath.Join(t.TempDir(), "not-here")
+	var lines []string
+	_, err := TunnelOn(context.Background(), store, st, false, 1, func(s string) { lines = append(lines, s) })
+	if err == nil {
+		t.Fatal("找不到 cloudflared 且不下载时应报错")
+	}
+	for _, want := range []string{"--download", "apt-get install", "cloudflared_bin"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("错误里应给出可执行建议 %q: %v", want, err)
+		}
 	}
 }

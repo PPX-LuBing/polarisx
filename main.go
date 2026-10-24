@@ -1091,126 +1091,40 @@ func cmdTunnel(args []string) error {
 			fmt.Printf(f, a...)
 		}
 	}
-	units := []string{"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer"}
-	sd := func(args ...string) string {
-		out, _ := exec.Command("systemctl", args...).CombinedOutput()
-		return strings.TrimSpace(string(out))
-	}
-	hasSystemd := exec.Command("systemctl", "is-system-running").Run() == nil ||
-		func() bool { _, err := os.Stat("/run/systemd/system"); return err == nil }()
-
+	// 具体动作在 panel 里，TUI 用的是同一份（避免 CLI/TUI 两份实现漂移）
 	switch action {
 	case "status":
-		cf := panel.FindCloudflared(st)
-		live := panel.QuickTunnelHost(st, 4*time.Second)
-		say("免域名订阅隧道: %s\n", map[bool]string{true: "开启", false: "关闭"}[st.SubTunnel])
-		say("  cloudflared   : %s\n", firstNonEmptyStr(cf, "找不到（用 `polarisx tunnel on --download`）"))
-		say("  隧道指向      : %s\n", firstNonEmptyStr(st.SubTunnelTarget, panel.DefaultTunnelTarget))
-		say("  metrics       : %s\n", firstNonEmptyStr(st.SubTunnelMetrics, panel.DefaultTunnelMetrics))
-		say("  当前隧道域名  : %s\n", firstNonEmptyStr(live, "取不到（服务没跑？）"))
-		say("  订阅里写的域名: %s\n", firstNonEmptyStr(st.SubTunnelHost, "(空)"))
-		say("  订阅地址前缀  : %s\n", panel.SubBaseFor(st))
-		if st.SubTunnel {
-			if live != "" && st.SubTunnelHost != "" && live != st.SubTunnelHost {
-				say("  !! 域名对不上：跑 `polarisx tunnel refresh` 更新订阅地址\n")
-			} else if live != "" && st.SubTunnelHost == "" {
-				say("  !! 订阅地址还没切到隧道：跑 `polarisx tunnel refresh`\n")
-			}
+		s := panel.TunnelStatus(st, 4*time.Second)
+		say("免域名订阅隧道: %s\n", map[bool]string{true: "开启", false: "关闭"}[s.Enabled])
+		say("  cloudflared   : %s\n", firstNonEmptyStr(s.Cloudflared, "找不到（用 `polarisx tunnel on --download`）"))
+		say("  隧道指向      : %s\n", s.Target)
+		say("  metrics       : %s\n", s.Metrics)
+		say("  当前隧道域名  : %s\n", firstNonEmptyStr(s.LiveHost, "取不到（服务没跑？）"))
+		say("  订阅里写的域名: %s\n", firstNonEmptyStr(s.RecordedHost, "(空)"))
+		say("  订阅地址前缀  : %s\n", s.SubBase)
+		if s.Warn != "" {
+			say("  !! %s\n", s.Warn)
 		}
-		if hasSystemd {
-			for _, u := range units {
-				say("  %-32s %s\n", u, firstNonEmptyStr(sd("is-active", u), "unknown"))
+		for _, u := range panel.TunnelUnitNames() {
+			if v, ok := s.Units[u]; ok {
+				say("  %-32s %s\n", u, firstNonEmptyStr(v, "unknown"))
 			}
 		}
 		return nil
 
 	case "on":
-		cf := panel.FindCloudflared(st)
-		if cf == "" && *download {
-			say("  下载 cloudflared…\n")
-			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
-			cf, err = panel.DownloadCloudflared(ctx)
-			cancel()
-			if err != nil {
-				return err
-			}
-			say("  已装到 %s\n", cf)
-		}
-		if cf == "" {
-			return fmt.Errorf("没找到 cloudflared。三选一：\n" +
-				"  1) polarisx tunnel on --download   # 从 GitHub 下载（带镜像回退）\n" +
-				"  2) apt-get install -y cloudflared  # Debian/Ubuntu\n" +
-				"  3) polarisx set cloudflared_bin=/path/to/cloudflared")
-		}
-		st.CloudflaredBin = cf
-		if st.SubTunnelPrevBase == "" {
-			st.SubTunnelPrevBase = st.SubBase
-		}
-		st.SubTunnel = true
-		if err := panel.SaveSettings(st); err != nil {
-			return err
-		}
-		if hasSystemd {
-			for name, body := range panel.TunnelUnits(st) {
-				if err := os.WriteFile("/etc/systemd/system/"+name, []byte(body), 0o644); err != nil {
-					return err
-				}
-			}
-			sd("daemon-reload")
-			say("  systemd: %s\n", firstNonEmptyStr(sd("enable", "--now",
-				"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer"), "已启用"))
-		} else {
-			say("  本机没有 systemd —— 自己常驻这条命令：\n")
-			say("    %s tunnel --no-autoupdate --edge-ip-version auto --metrics %s --url %s\n",
-				cf, firstNonEmptyStr(st.SubTunnelMetrics, panel.DefaultTunnelMetrics),
-				firstNonEmptyStr(st.SubTunnelTarget, panel.DefaultTunnelTarget))
-		}
-		host := panel.WaitQuickTunnel(st, *wait, func(m string) { say("%s\n", m) })
-		if host == "" {
-			return fmt.Errorf("没等到隧道域名（cloudflared 没起来 / metrics 端口不对）。" +
-				"起来后再跑 `polarisx tunnel refresh`")
-		}
-		if _, err := panel.ApplyTunnelBase(&st, host); err != nil {
-			return err
-		}
-		_ = store.Event("开启免域名订阅隧道: "+panel.TunnelBase(host), "info", "")
-		say("  订阅地址已切到: %s\n", panel.SubBaseFor(st))
-		say("  临时隧道域名每次重启 cloudflared 都会变，refresh 定时器每 2 分钟自动跟上\n")
-		return nil
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+		defer cancel()
+		_, err := panel.TunnelOn(ctx, store, st, *download, *wait, func(m string) { say("%s\n", m) })
+		return err
 
 	case "off":
-		if hasSystemd {
-			say("  systemd: %s\n", firstNonEmptyStr(sd("disable", "--now",
-				"polarisx-tunnel.service", "polarisx-tunnel-refresh.timer"), "已停用"))
-		}
-		prev := strings.TrimSpace(st.SubTunnelPrevBase)
-		st.SubTunnel = false
-		st.SubTunnelHost = ""
-		st.SubTunnelPrevBase = ""
-		st.SubBase = prev
-		if err := panel.SaveSettings(st); err != nil {
-			return err
-		}
-		_ = store.Event("关闭免域名订阅隧道，订阅地址还原为 "+firstNonEmptyStr(prev, "(本机监听地址)"), "info", "")
-		say("  隧道已关，订阅地址还原为: %s\n", panel.SubBaseFor(st))
-		return nil
+		_, err := panel.TunnelOff(store, st, func(m string) { say("%s\n", m) })
+		return err
 
 	case "refresh":
-		host := panel.QuickTunnelHost(st, 4*time.Second)
-		if host == "" {
-			return fmt.Errorf("取不到隧道域名（cloudflared 没跑？）")
-		}
-		changed, err := panel.ApplyTunnelBase(&st, host)
-		if err != nil {
-			return err
-		}
-		if changed {
-			_ = store.Event("隧道域名刷新: "+panel.TunnelBase(host), "info", "")
-			say("  订阅地址已更新: %s\n", panel.SubBaseFor(st))
-		} else {
-			say("  隧道域名没变: %s\n", host)
-		}
-		return nil
+		_, _, err := panel.TunnelRefresh(store, st, func(m string) { say("%s\n", m) })
+		return err
 	}
 	return fmt.Errorf("未知动作: %s（status/on/off/refresh）", action)
 }
