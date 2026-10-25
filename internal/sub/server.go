@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/PPX-LuBing/polarisx/internal/panel"
+	"log/slog"
 )
 
 // Server 是订阅服务。settings 每个请求重读（改订阅名/分流预设不用重启）。
@@ -63,6 +64,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
+	// 记一行访问日志：订阅"拉不到东西"时，靠这个就能看出是哪个客户端来拉的、
+	// 要的哪种格式——比反复猜客户端行为可靠得多（User-Agent 就是客户端自报的身份）。
+	slog.Info("订阅请求", "ua", r.UserAgent(), "path", path, "from", r.RemoteAddr, "host", r.Host)
 	switch path {
 	case "/", "/index.html":
 		writeText(w, 200, fmt.Sprintf("%s %s ok\n", panel.ProductName, panel.VersionString()), nil)
