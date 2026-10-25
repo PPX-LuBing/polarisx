@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -91,4 +92,82 @@ func TestAutoResetStillRecoversDisabledUser(t *testing.T) {
 	if u.UsedUp != 0 {
 		t.Errorf("重置后用量应为 0，实际 %d", u.UsedUp)
 	}
+}
+
+// 计费倍率：提供商按网卡层计费（代理上同一份载荷进出各算一次，约 2 倍），
+// 所以额度口径需要能乘一个倍率。Xboard/V2board 也是这个做法。
+func TestApplyStatsTrafficRate(t *testing.T) {
+	mk := func(t *testing.T, rate float64) (*Store, Settings) {
+		t.Helper()
+		dir := t.TempDir()
+		t.Setenv("POLARISX_HOME", dir)
+		store, err := Open(filepath.Join(dir, "panel.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.CreateUser("alice", 10, "", "", nil); err != nil {
+			t.Fatal(err)
+		}
+		st := Defaults()
+		st.TrafficRate = rate
+		return store, st
+	}
+	stats := map[string]int64{
+		"user>>>alice>>>traffic>>>uplink":   1000,
+		"user>>>alice>>>traffic>>>downlink": 2000,
+	}
+
+	t.Run("默认 1 倍：与旧行为一致", func(t *testing.T) {
+		store, st := mk(t, 1)
+		defer store.Close()
+		if _, err := store.ApplyStats(stats, st, time.Now(), false); err != nil {
+			t.Fatal(err)
+		}
+		u, err := store.UserByName("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u.UsedUp != 1000 || u.UsedDown != 2000 {
+			t.Errorf("1 倍时用量应为 1000/2000，实际 %d/%d", u.UsedUp, u.UsedDown)
+		}
+	})
+
+	t.Run("2 倍：用量、历史、报告都按倍率", func(t *testing.T) {
+		store, st := mk(t, 2)
+		defer store.Close()
+		rep, err := store.ApplyStats(stats, st, time.Now(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := store.UserByName("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if u.UsedUp != 2000 || u.UsedDown != 4000 {
+			t.Errorf("2 倍时用量应为 2000/4000，实际 %d/%d", u.UsedUp, u.UsedDown)
+		}
+		if rep.AddedUp != 2000 || rep.AddedDown != 4000 {
+			t.Errorf("报告也应按倍率：实际 %d/%d", rep.AddedUp, rep.AddedDown)
+		}
+		series, err := store.TrafficSeries(time.Now(), 24)
+		if err != nil {
+			t.Fatal(err)
+		}
+		up, down := TrafficTotal(series)
+		if up != 2000 || down != 4000 {
+			t.Errorf("历史表也应按倍率：实际 %d/%d", up, down)
+		}
+	})
+
+	t.Run("0 或未设视为 1 倍（不会把用量清零）", func(t *testing.T) {
+		store, st := mk(t, 0)
+		defer store.Close()
+		if _, err := store.ApplyStats(stats, st, time.Now(), false); err != nil {
+			t.Fatal(err)
+		}
+		u, _ := store.UserByName("alice")
+		if u.UsedUp != 1000 || u.UsedDown != 2000 {
+			t.Errorf("倍率为 0 时应按 1 倍，实际 %d/%d", u.UsedUp, u.UsedDown)
+		}
+	})
 }

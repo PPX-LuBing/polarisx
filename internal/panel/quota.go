@@ -293,6 +293,21 @@ func (s *Store) ApplyStats(stats map[string]int64, st Settings, today time.Time,
 			downBy[parts[1]] += val
 		}
 	}
+	// 计费倍率：把"用户级"流量换算成账单口径（提供商按网卡层计费）。
+	// 只在这里乘一次，后面的历史表、用户用量、采集报告自然全部一致。
+	rate := st.TrafficRate
+	if rate <= 0 {
+		rate = 1
+	}
+	if rate != 1 {
+		for k, v := range upBy {
+			upBy[k] = int64(float64(v) * rate)
+		}
+		for k, v := range downBy {
+			downBy[k] = int64(float64(v) * rate)
+		}
+	}
+
 	emails := map[string]bool{}
 	for e := range upBy {
 		emails[e] = true

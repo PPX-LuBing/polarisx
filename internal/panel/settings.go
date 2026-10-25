@@ -15,7 +15,7 @@ import (
 // 声明成 var 而不是 const，是为了让发布流程能用
 // `-ldflags "-X .../internal/panel.Version=$(VERSION)"` 把 git tag 注入进来
 // （const 无法被 ldflags 覆盖）。
-var Version = "2.0.7"
+var Version = "2.0.8"
 
 // VersionString 返回给人和给客户端看的版本号：统一带 v 前缀。
 // 无论 Version 被注入成 "2.0.2" 还是 "v2.0.2"，这里都输出 "v2.0.2"。
@@ -57,6 +57,10 @@ type Settings struct {
 	SingboxDNS             string `json:"singbox_dns"`
 	ClashRules             string `json:"clash_rules"`
 	SubTitle               string `json:"sub_title"`
+	// TrafficRate 是计费倍率：节点上报的是"用户级"流量，而提供商按网卡层计费
+	// （代理服务器上同一份载荷进出各算一次，实测约 2 倍）。乘上倍率后额度口径与
+	// 账单一致。Xboard/V2board 也是这个做法（节点的 rate，见 TrafficFetchJob）。
+	TrafficRate float64 `json:"traffic_rate"`
 	// 订阅服务的 TLS。off=明文（由外部反代做 TLS）、auto=ACME 自动签发与续期、
 	// files=用指定证书。默认 off，保持与旧版本一致。
 	SubTLS            string `json:"sub_tls"`
@@ -96,6 +100,7 @@ func Defaults() Settings {
 		XrayAPI:                "127.0.0.1:10085",
 		RestartCmd:             "systemctl restart xray",
 		SubListen:              "0.0.0.0:8080",
+		TrafficRate:            1,
 		SubTLS:                 "off",
 		SubTLSListen:           ":443",
 		SubHTTPListen:          ":80",

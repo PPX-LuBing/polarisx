@@ -1250,6 +1250,11 @@ func cmdDoctor(args []string) error {
 	} else {
 		fmt.Printf("[ok] 订阅 TLS: %s\n", describeTLS(setup))
 	}
+	if st.TrafficRate > 0 && st.TrafficRate != 1 {
+		fmt.Printf("[ok] 计费倍率: ×%g（节点上报的用户级流量会乘这个倍数入账，用于对齐提供商账单）\n", st.TrafficRate)
+	} else {
+		fmt.Printf("[ok] 计费倍率: ×1（按 xray 的用户级流量记；若提供商按网卡计费，可设 traffic_rate=2）\n")
+	}
 
 	cfg, err := store.BuildConfig(st)
 	if err != nil {
