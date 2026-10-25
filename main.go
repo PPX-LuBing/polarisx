@@ -1379,60 +1379,82 @@ func netDevTotal() (int64, error) {
 	return total, sc.Err()
 }
 
-// sumStats 把 xray 的 user>>> 计数器全部加起来（这些键都是流量，直接求和即可）。
-func sumStats(m map[string]int64) int64 {
-	var total int64
-	for _, v := range m {
-		total += v
+// totalUsed 汇总所有用户的已用流量（面板口径）。这个值是单调递增的，
+// 不受 xray 计数器"读完即重置"影响，适合用来量一个窗口内的增量。
+func totalUsed(store *panel.Store) (int64, error) {
+	us, err := store.Users()
+	if err != nil {
+		return 0, err
 	}
-	return total
+	var total int64
+	for _, u := range us {
+		total += panel.UsedBytes(u)
+	}
+	return total, nil
 }
 
-// verifyTraffic 在同一时间窗里对比「网卡流量」与「xray 用户级流量」，得出真实倍率。
+// verifyTraffic 在同一时间窗里对比「网卡流量」与「用户级流量」，得出真实倍率。
 //
-// 用途：网卡是提供商计费的层级（代理服务器上同一份载荷进出各算一次），面板额度则按
-// xray 的用户级流量 × traffic_rate 记。跑一次这个就能知道倍率该设多少，而不是拍脑袋。
-// 只读：不触发采集，也不重置 xray 的计数器。
+// 用途：网卡是提供商计费的层级（代理服务器上同一份载荷进出各算一次，约 2 倍），
+// 面板额度则按用户级流量 × traffic_rate 记。跑一次就知道倍率该设多少，不必拍脑袋。
+// 用面板累计值（单调）而不是 xray 计数器——后者会被定时采集读走并重置，
+// 采样窗口一旦跨过采集就会算出负数（这个坑真踩过）。
 func verifyTraffic(seconds int) error {
 	st, err := panel.LoadSettings()
 	if err != nil {
 		return err
 	}
+	store, err := panel.Open(panel.DBPath())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
 	nic0, err := netDevTotal()
 	if err != nil {
 		return err
 	}
-	s0, err := panel.FetchStats(st, false)
+	used0, err := totalUsed(store)
 	if err != nil {
-		return fmt.Errorf("读 xray 计数器失败（xray 在跑吗？）: %w", err)
+		return err
 	}
-	fmt.Printf("采样 %d 秒（期间请让客户端正常跑点流量，远程客户端的流量才会两段都过网卡）…\n", seconds)
+	fmt.Printf("采样 %d 秒（期间让客户端正常跑点流量；本机回环的流量不过网卡，测不准）…\n", seconds)
 	time.Sleep(time.Duration(seconds) * time.Second)
+
+	// 触发一次采集，把这一窗口的流量入账（这就是定时器平时做的事）
+	if _, err := store.Collect(st, time.Now(), false); err != nil {
+		return err
+	}
 	nic1, err := netDevTotal()
 	if err != nil {
 		return err
 	}
-	s1, err := panel.FetchStats(st, false)
+	used1, err := totalUsed(store)
 	if err != nil {
 		return err
 	}
+
 	nic := nic1 - nic0
-	user := sumStats(s1) - sumStats(s0)
+	panelDelta := used1 - used0
 	fmt.Printf("  网卡流量（提供商计费口径）: %s\n", panel.HumanBytes(nic))
-	fmt.Printf("  xray 用户级流量            : %s\n", panel.HumanBytes(user))
-	if user <= 0 {
-		fmt.Println("  这段时间没有用户流量，测不出来。让客户端跑点流量再试。")
+	fmt.Printf("  面板入账（用户级 × %g）    : %s\n", st.TrafficRate, panel.HumanBytes(panelDelta))
+	if st.TrafficRate <= 0 {
+		st.TrafficRate = 1
+	}
+	userLevel := float64(panelDelta) / st.TrafficRate
+	if userLevel < 1<<20 { // 不到 1MB，测出来的比值没意义
+		fmt.Println("  这段时间用户流量太少，测不准。让客户端跑点流量再试。")
 		return nil
 	}
-	ratio := float64(nic) / float64(user)
+	ratio := float64(nic) / userLevel
+	fmt.Printf("  用户级流量                 : %s\n", panel.HumanBytes(int64(userLevel)))
 	fmt.Printf("  实测倍数 网卡/用户级 = %.3f\n", ratio)
-	fmt.Printf("  当前 traffic_rate = %g（面板口径 = 用户级 × %g）\n", st.TrafficRate, st.TrafficRate)
 	switch {
-	case ratio >= 1.05*st.TrafficRate || ratio <= 0.95*st.TrafficRate:
-		fmt.Printf("  建议: polarisx set traffic_rate=%.2f  （当前口径与账单差 %.0f%%）\n",
-			ratio, (ratio/st.TrafficRate-1)*100)
+	case ratio > 1.05*st.TrafficRate || ratio < 0.95*st.TrafficRate:
+		fmt.Printf("  建议: polarisx set traffic_rate=%.2f   （当前 %g，口径差 %.0f%%）\n",
+			ratio, st.TrafficRate, (ratio/st.TrafficRate-1)*100)
 	default:
-		fmt.Println("  当前倍率与实测基本一致（±5%），不用改。")
+		fmt.Printf("  当前 traffic_rate=%g 与实测基本一致（±5%%），不用改。\n", st.TrafficRate)
 	}
 	return nil
 }
