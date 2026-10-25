@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"errors"
 	"github.com/PPX-LuBing/polarisx/internal/panel"
 )
 
@@ -311,4 +312,53 @@ func TestACMECertExpiryParsesKeyFirstPEM(t *testing.T) {
 	if !exp.Equal(tmpl.NotAfter) {
 		t.Errorf("到期时间 = %v，期望 %v", exp, tmpl.NotAfter)
 	}
+}
+
+// 缺 SNI 的客户端必须也能拿到证书：autocert 原本会以 "missing server name" 拒掉，
+// 而部分客户端在非 443 端口上确实不发 SNI（曾导致订阅拉不出来）。
+func TestSNIFallback(t *testing.T) {
+	fake := &tls.Certificate{}
+	var seen []string
+	// 模拟 autocert 的真实行为：ServerName 为空就报 missing server name
+	inner := func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		seen = append(seen, hello.ServerName)
+		if hello.ServerName == "" {
+			return nil, errors.New("acme/autocert: missing server name")
+		}
+		return fake, nil
+	}
+
+	t.Run("单域名：缺 SNI 也能拿到证书", func(t *testing.T) {
+		seen = nil
+		got := sniFallback(inner, []string{"hk.loongarch.de5.net"})
+		c, err := got(&tls.ClientHelloInfo{})
+		if err != nil {
+			t.Fatalf("缺 SNI 时不该失败，实际 %v", err)
+		}
+		if c != fake {
+			t.Error("应返回兜底域名的证书")
+		}
+		if len(seen) != 1 || seen[0] != "hk.loongarch.de5.net" {
+			t.Errorf("兜底时传给 autocert 的域名应为配置的那个，实际 %v", seen)
+		}
+	})
+
+	t.Run("单域名：有 SNI 时原样透传", func(t *testing.T) {
+		seen = nil
+		got := sniFallback(inner, []string{"hk.loongarch.de5.net"})
+		if _, err := got(&tls.ClientHelloInfo{ServerName: "other.example.com"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(seen) != 1 || seen[0] != "other.example.com" {
+			t.Errorf("有 SNI 时应原样透传，实际 %v", seen)
+		}
+	})
+
+	t.Run("多域名：不兜底（无法判断该给哪张证书）", func(t *testing.T) {
+		seen = nil
+		got := sniFallback(inner, []string{"a.example.com", "b.example.com"})
+		if _, err := got(&tls.ClientHelloInfo{}); err == nil {
+			t.Error("多域名时缺 SNI 应保持原行为（失败）")
+		}
+	})
 }

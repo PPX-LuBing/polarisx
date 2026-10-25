@@ -228,11 +228,34 @@ func (s *Server) serveAuto(setup TLSSetup) error {
 		}()
 	}
 	slog.Info("订阅服务启动（ACME 自动证书）", "addr", setup.Listen, "域名", strings.Join(setup.Hosts, ","), "缓存", setup.CacheDir)
-	srv := s.newServer(setup.Listen, m.TLSConfig())
+	tlsCfg := m.TLSConfig()
+	tlsCfg.GetCertificate = sniFallback(m.GetCertificate, setup.Hosts)
+	srv := s.newServer(setup.Listen, tlsCfg)
 	return srv.ListenAndServeTLS("", "")
 }
 
 // newServer 统一超时等参数（明文与 TLS 共用）。
+// sniFallback 包一层 autocert 的 GetCertificate，让客户端**不发 SNI** 时也能握手成功。
+//
+// autocert 在 ClientHelloInfo.ServerName 为空时直接返回 "missing server name"，
+// 握手失败——真踩到过：订阅在非 443 端口时部分客户端不发 SNI，于是"拉不出来订阅"。
+// 只配了一个域名时（本项目的常态）缺 SNI 就用它兜底；配了多个域名则无法判断该给
+// 哪张证书，保持原行为。
+func sniFallback(inner func(*tls.ClientHelloInfo) (*tls.Certificate, error), hosts []string) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if len(hosts) != 1 {
+		return inner
+	}
+	only := hosts[0]
+	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if hello.ServerName == "" {
+			withName := *hello
+			withName.ServerName = only
+			return inner(&withName)
+		}
+		return inner(hello)
+	}
+}
+
 func (s *Server) newServer(addr string, tlsCfg *tls.Config) *http.Server {
 	return &http.Server{
 		Addr:              addr,

@@ -18,7 +18,9 @@ import (
 	"github.com/PPX-LuBing/polarisx/internal/tui"
 	"github.com/PPX-LuBing/polarisx/internal/web"
 
+	"bufio"
 	tea "github.com/charmbracelet/bubbletea"
+	"strconv"
 )
 
 func main() {
@@ -826,7 +828,11 @@ func cmdTraffic(args []string) error {
 	fs := flag.NewFlagSet("traffic", flag.ExitOnError)
 	hours := fs.Int("hours", 24, "看最近多少小时")
 	asJSON := fs.Bool("json", false, "输出 JSON")
+	verify := fs.Int("verify", 0, "采样 N 秒，对比网卡与 xray 用户级流量，算出真实倍率（校准 traffic_rate）")
 	_ = fs.Parse(args)
+	if *verify > 0 {
+		return verifyTraffic(*verify)
+	}
 	store, err := panel.Open(panel.DBPath())
 	if err != nil {
 		return err
@@ -1341,4 +1347,92 @@ func describeTLS(setup sub.TLSSetup) string {
 	default:
 		return fmt.Sprintf("关闭（明文 %s；要 HTTPS 就设 sub_tls=auto）", setup.Listen)
 	}
+}
+
+// netDevTotal 汇总除 lo 之外所有网卡的收发字节。这就是 VPS 提供商计费的那个层级。
+// 排掉 lo 是有意的：本机回环上的流量不会上网卡，提供商也看不到。
+func netDevTotal() (int64, error) {
+	f, err := os.Open("/proc/net/dev")
+	if err != nil {
+		return 0, fmt.Errorf("读不到 /proc/net/dev（这个命令只在 Linux 上有意义）: %w", err)
+	}
+	defer f.Close()
+	var total int64
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		i := strings.Index(line, ":")
+		if i < 0 {
+			continue
+		}
+		if name := strings.TrimSpace(line[:i]); name == "lo" || name == "" {
+			continue
+		}
+		fields := strings.Fields(line[i+1:])
+		if len(fields) < 9 {
+			continue
+		}
+		rx, _ := strconv.ParseInt(fields[0], 10, 64)
+		tx, _ := strconv.ParseInt(fields[8], 10, 64)
+		total += rx + tx
+	}
+	return total, sc.Err()
+}
+
+// sumStats 把 xray 的 user>>> 计数器全部加起来（这些键都是流量，直接求和即可）。
+func sumStats(m map[string]int64) int64 {
+	var total int64
+	for _, v := range m {
+		total += v
+	}
+	return total
+}
+
+// verifyTraffic 在同一时间窗里对比「网卡流量」与「xray 用户级流量」，得出真实倍率。
+//
+// 用途：网卡是提供商计费的层级（代理服务器上同一份载荷进出各算一次），面板额度则按
+// xray 的用户级流量 × traffic_rate 记。跑一次这个就能知道倍率该设多少，而不是拍脑袋。
+// 只读：不触发采集，也不重置 xray 的计数器。
+func verifyTraffic(seconds int) error {
+	st, err := panel.LoadSettings()
+	if err != nil {
+		return err
+	}
+	nic0, err := netDevTotal()
+	if err != nil {
+		return err
+	}
+	s0, err := panel.FetchStats(st, false)
+	if err != nil {
+		return fmt.Errorf("读 xray 计数器失败（xray 在跑吗？）: %w", err)
+	}
+	fmt.Printf("采样 %d 秒（期间请让客户端正常跑点流量，远程客户端的流量才会两段都过网卡）…\n", seconds)
+	time.Sleep(time.Duration(seconds) * time.Second)
+	nic1, err := netDevTotal()
+	if err != nil {
+		return err
+	}
+	s1, err := panel.FetchStats(st, false)
+	if err != nil {
+		return err
+	}
+	nic := nic1 - nic0
+	user := sumStats(s1) - sumStats(s0)
+	fmt.Printf("  网卡流量（提供商计费口径）: %s\n", panel.HumanBytes(nic))
+	fmt.Printf("  xray 用户级流量            : %s\n", panel.HumanBytes(user))
+	if user <= 0 {
+		fmt.Println("  这段时间没有用户流量，测不出来。让客户端跑点流量再试。")
+		return nil
+	}
+	ratio := float64(nic) / float64(user)
+	fmt.Printf("  实测倍数 网卡/用户级 = %.3f\n", ratio)
+	fmt.Printf("  当前 traffic_rate = %g（面板口径 = 用户级 × %g）\n", st.TrafficRate, st.TrafficRate)
+	switch {
+	case ratio >= 1.05*st.TrafficRate || ratio <= 0.95*st.TrafficRate:
+		fmt.Printf("  建议: polarisx set traffic_rate=%.2f  （当前口径与账单差 %.0f%%）\n",
+			ratio, (ratio/st.TrafficRate-1)*100)
+	default:
+		fmt.Println("  当前倍率与实测基本一致（±5%），不用改。")
+	}
+	return nil
 }

@@ -1,6 +1,6 @@
 # PolarisX（北极星）
 
-当前版本：`v2.0.8`
+当前版本：`v2.0.9`
 
 Xray 多协议落地机面板。**单静态二进制**，无运行时依赖。
 
@@ -33,6 +33,18 @@ POLARISX_HOME=/var/lib/polarisx ./bin/polarisx show      # 打印将要写入的
 ```
 
 数据目录用 `POLARISX_HOME`，默认 `/var/lib/polarisx`。
+
+### 校准倍率：`polarisx traffic --verify`
+
+倍率不用拍脑袋，直接测：
+
+```bash
+polarisx traffic --verify 120     # 采样 120 秒，对比网卡与 xray 用户级流量
+```
+
+它只读（不触发采集、不重置计数器），会打印「网卡流量 / 用户级流量」的实测倍数，
+并给出建议的 `traffic_rate`。注意两点：**远程客户端**的流量才会两段都过网卡
+（本机回环测不准）；网卡计数重启归零，所以比的是**速率**不是累计值。
 
 ### 计费倍率（让额度口径对齐提供商账单）
 
