@@ -53,6 +53,19 @@ type infoDoc struct {
 	Nodes          []string `json:"nodes"`
 }
 
+// normalizeSubPath 规范化订阅请求路径。
+//
+// 有些客户端（实测 FlClash v0.9.2）会在路径末尾带一个空格，例如
+// "/sub/<token>/clash "。不修剪的话格式后缀匹配不上，会被当成裸订阅返回 base64，
+// 客户端拿它当 YAML 解析就"一个节点都没有"。空白与末尾斜杠都去掉。
+func normalizeSubPath(p string) string {
+	p = strings.TrimRight(strings.TrimSpace(p), "/")
+	if p == "" {
+		return "/"
+	}
+	return p
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 每个请求重读设置：改完订阅名 / 地区 / 分流预设不用重启订阅服务
 	st, err := panel.LoadSettings()
@@ -60,10 +73,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeText(w, 500, "error: "+err.Error()+"\n", nil)
 		return
 	}
-	path := strings.TrimSuffix(r.URL.Path, "/")
-	if path == "" {
-		path = "/"
-	}
+	path := normalizeSubPath(r.URL.Path)
 	// 记一行访问日志：订阅"拉不到东西"时，靠这个就能看出是哪个客户端来拉的、
 	// 要的哪种格式——比反复猜客户端行为可靠得多（User-Agent 就是客户端自报的身份）。
 	slog.Info("订阅请求", "ua", r.UserAgent(), "path", path, "from", r.RemoteAddr, "host", r.Host)

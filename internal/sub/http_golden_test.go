@@ -202,3 +202,23 @@ func bodyDiff(got, want string) string {
 	}
 	return fmt.Sprintf("第 %d 字节起不同\n  go   : …%s\n  golden: …%s", i, got[lo:hi], want[lo:wi])
 }
+
+// 路径末尾带空格的客户端（实测 FlClash v0.9.2 会这样）必须也能拿到对应格式，
+// 否则会被当成裸订阅返回 base64，客户端拿它当 YAML 解析就"一个节点都没有"。
+func TestNormalizeSubPath(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"/sub/tok/clash ", "/sub/tok/clash"},
+		{"/sub/tok/clash", "/sub/tok/clash"},
+		{"/sub/tok/clash/", "/sub/tok/clash"},
+		{"/sub/tok/clash/ ", "/sub/tok/clash"},
+		{"/sub/tok/singbox ", "/sub/tok/singbox"},
+		{"/sub/tok ", "/sub/tok"},
+		{"/", "/"},
+		{"", "/"},
+		{"  ", "/"},
+	} {
+		if got := normalizeSubPath(tc.in); got != tc.want {
+			t.Errorf("normalizeSubPath(%q) = %q，期望 %q", tc.in, got, tc.want)
+		}
+	}
+}
